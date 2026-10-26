@@ -1,8 +1,16 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// مفتاح التوقيع يأتي من key.properties (محلياً) أو من أسرار GitHub في البناء التلقائي.
+val keyProps = Properties()
+val keyFile = rootProject.file("key.properties")
+if (keyFile.exists()) FileInputStream(keyFile).use { stream -> keyProps.load(stream) }
 
 android {
     namespace = "com.dhikra.app"
@@ -29,11 +37,6 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
-
-    // مفتاح التوقيع يأتي من key.properties (محلياً) أو من أسرار GitHub في البناء التلقائي.
-    val keyProps = java.util.Properties()
-    val keyFile = rootProject.file("key.properties")
-    if (keyFile.exists()) keyFile.inputStream().use { keyProps.load(it) }
 
     signingConfigs {
         if (keyFile.exists()) {
