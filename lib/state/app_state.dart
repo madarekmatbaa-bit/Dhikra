@@ -4,9 +4,12 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../db/adhkar_data.dart';
 import '../db/bukhari_db.dart';
 import '../db/user_db.dart';
+import '../services/home_widgets.dart';
 import '../services/notifications.dart';
+import '../services/prayer.dart';
 import '../util/arabic.dart';
 
 class Forecast {
@@ -20,6 +23,7 @@ class Forecast {
 class AppState extends ChangeNotifier {
   final bukhari = BukhariDb();
   final user = UserDb();
+  final adhkar = AdhkarData();
   late final SharedPreferences _prefs;
 
   bool ready = false;
@@ -36,6 +40,35 @@ class AppState extends ChangeNotifier {
 
   DateTime Function() clock = DateTime.now;
 
+  bool _widgetPending = false;
+
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    _refreshWidgets();
+  }
+
+  /// يحدّث ويدجت الشاشة الرئيسية بعد أي تغيير، مرة واحدة لكل دفعة تغييرات.
+  void _refreshWidgets() {
+    if (!ready || plan == null || _widgetPending) return;
+    _widgetPending = true;
+    Future.delayed(const Duration(milliseconds: 500), () async {
+      _widgetPending = false;
+      try {
+        await HomeWidgets.update(
+          bukhari: bukhari,
+          position: position,
+          finished: finished,
+          today: todayLog,
+          perDay: plan!.perDay,
+          benefit: benefitOfTheDay,
+        );
+      } catch (_) {
+        // الويدجت ليست أساسية؛ لا نوقف التطبيق بسببها.
+      }
+    });
+  }
+
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
     fontSize = _prefs.getDouble('fontSize') ?? 20;
@@ -44,14 +77,22 @@ class AppState extends ChangeNotifier {
     khatmas = _prefs.getInt('khatmas') ?? 0;
     await bukhari.open();
     await user.open();
+    await adhkar.load();
     await _reload();
     ready = true;
     notifyListeners();
-    final t = parseTime(plan?.reminder);
-    if (t != null) {
-      Reminders.schedule(t).catchError((_) {});
-    }
+    reschedule().catchError((_) {});
   }
+
+  /// يعيد جدولة كل التذكيرات (الورد، الصلاة، الأذكار).
+  Future<void> reschedule() => Reminders.scheduleAll(ReminderPlan(
+        wird: parseTime(plan?.reminder),
+        sleep: sleepReminder,
+        prayer: prayerConfig,
+        prayerAlerts: prayerAlerts,
+        morningAfterFajr: morningAfterFajr,
+        eveningAfterAsr: eveningAfterAsr,
+      ));
 
   Future<void> _reload() async {
     plan = await user.activePlan('bukhari');
@@ -109,10 +150,8 @@ class AppState extends ChangeNotifier {
     );
     await _reload();
     notifyListeners();
-    if (reminder != null) {
-      await Reminders.requestPermission();
-      await Reminders.schedule(reminder);
-    }
+    if (reminder != null) await Reminders.requestPermission();
+    await reschedule();
   }
 
   /// يُستدعى عند الضغط على «قرأته». لا يحتسب إلا إذا كان الحديث هو موضع الورد الحالي.
@@ -171,12 +210,8 @@ class AppState extends ChangeNotifier {
     await user.updatePlan(p.id, {'reminder': time == null ? null : timeKey(time)});
     plan = await user.activePlan('bukhari');
     notifyListeners();
-    if (time == null) {
-      await Reminders.cancel();
-    } else {
-      await Reminders.requestPermission();
-      await Reminders.schedule(time);
-    }
+    if (time != null) await Reminders.requestPermission();
+    await reschedule();
   }
 
   Future<void> newKhatma() => setPosition(1);
@@ -328,6 +363,10 @@ class AppState extends ChangeNotifier {
       'format': 1,
       'exported_at': clock().toIso8601String(),
       'settings': {'fontSize': fontSize, 'theme': _prefs.getString('theme'), 'catchUp': catchUp, 'khatmas': khatmas},
+      'prefs': {
+        for (final k in _prefs.getKeys())
+          if (!k.startsWith('adhkar_')) k: _prefs.get(k),
+      },
       'data': await user.exportAll(),
     });
   }
@@ -336,6 +375,18 @@ class AppState extends ChangeNotifier {
     final m = jsonDecode(raw) as Map<String, dynamic>;
     if (m['app'] != 'dhikra') throw const FormatException('ليس ملف نسخة احتياطية من ذِكرى');
     await user.importAll(m['data'] as Map<String, dynamic>);
+    final prefs = (m['prefs'] as Map?) ?? {};
+    for (final e in prefs.entries) {
+      final k = e.key as String, v = e.value;
+      if (v is num && const {'loc_lat', 'loc_lng', 'fontSize'}.contains(k)) {
+        await _prefs.setDouble(k, v.toDouble());
+        continue;
+      }
+      if (v is bool) await _prefs.setBool(k, v);
+      if (v is int) await _prefs.setInt(k, v);
+      if (v is double) await _prefs.setDouble(k, v);
+      if (v is String) await _prefs.setString(k, v);
+    }
     final s = (m['settings'] as Map?) ?? {};
     if (s['fontSize'] is num) await _prefs.setDouble('fontSize', (s['fontSize'] as num).toDouble());
     if (s['theme'] is String) await _prefs.setString('theme', s['theme'] as String);
@@ -347,7 +398,95 @@ class AppState extends ChangeNotifier {
     khatmas = _prefs.getInt('khatmas') ?? 0;
     await _reload();
     notifyListeners();
-    final t = parseTime(plan?.reminder);
-    if (t != null) await Reminders.schedule(t);
+    await reschedule();
+  }
+
+  // ---------- الصلاة والأذكار ----------
+
+  PrayerConfig? get prayerConfig {
+    final lat = _prefs.getDouble('loc_lat'), lng = _prefs.getDouble('loc_lng');
+    if (lat == null || lng == null) return null;
+    return PrayerConfig(
+      lat: lat,
+      lng: lng,
+      place: _prefs.getString('loc_name') ?? '',
+      method: _prefs.getString('calc_method') ?? 'muslim_world_league',
+      hanafi: _prefs.getBool('hanafi') ?? false,
+    );
+  }
+
+  Future<void> setLocation(double lat, double lng, String name) async {
+    final first = prayerConfig == null;
+    await _prefs.setDouble('loc_lat', lat);
+    await _prefs.setDouble('loc_lng', lng);
+    await _prefs.setString('loc_name', name);
+    notifyListeners();
+    if (first) await Reminders.requestPermission();
+    await reschedule();
+  }
+
+  Future<void> setMethod(String m) async {
+    await _prefs.setString('calc_method', m);
+    notifyListeners();
+    await reschedule();
+  }
+
+  Future<void> setHanafi(bool v) async {
+    await _prefs.setBool('hanafi', v);
+    notifyListeners();
+    await reschedule();
+  }
+
+  Set<Salah> get prayerAlerts => {
+        for (final s in fivePrayers)
+          if (_prefs.getBool('alert_${s.name}') ?? true) s,
+      };
+
+  Future<void> setPrayerAlert(Salah s, bool on) async {
+    await _prefs.setBool('alert_${s.name}', on);
+    notifyListeners();
+    await reschedule();
+  }
+
+  /// null = التذكير مطفأ.
+  int? get morningAfterFajr => _offset('morning_after_fajr', 30);
+  int? get eveningAfterAsr => _offset('evening_after_asr', 30);
+
+  int? _offset(String key, int def) {
+    final v = _prefs.getInt(key) ?? def;
+    return v < 0 ? null : v;
+  }
+
+  Future<void> setMorningAfterFajr(int? minutes) async {
+    await _prefs.setInt('morning_after_fajr', minutes ?? -1);
+    notifyListeners();
+    await reschedule();
+  }
+
+  Future<void> setEveningAfterAsr(int? minutes) async {
+    await _prefs.setInt('evening_after_asr', minutes ?? -1);
+    notifyListeners();
+    await reschedule();
+  }
+
+  TimeOfDay? get sleepReminder => parseTime(_prefs.getString('sleep_reminder'));
+
+  Future<void> setSleepReminder(TimeOfDay? t) async {
+    if (t == null) {
+      await _prefs.remove('sleep_reminder');
+    } else {
+      await _prefs.setString('sleep_reminder', timeKey(t));
+      await Reminders.requestPermission();
+    }
+    notifyListeners();
+    await reschedule();
+  }
+
+  bool adhkarDone(AdhkarSet set, [DateTime? day]) =>
+      _prefs.getBool('adhkar_${set.name}_${dateKey(day ?? clock())}') ?? false;
+
+  Future<void> markAdhkarDone(AdhkarSet set) async {
+    await _prefs.setBool('adhkar_${set.name}_$todayKey', true);
+    notifyListeners();
   }
 }

@@ -14,9 +14,18 @@
 - دفتر الفوائد: حفظ جملة من الحديث مربوطة برقمه، فوائد حرة، وسوم، تثبيت، بحث، ومشاركة نصاً أو صورة.
 - تذكير يومي، حجم الخط، وضع ليلي، ونسخ احتياطي إلى ملف.
 
+## الإصدار 0.2
+
+- الأذكار: الصباح، المساء، ما بعد الصلاة، والنوم، مع عدّاد بالضغط ينتقل تلقائياً للذكر التالي.
+- مواقيت الصلاة محسوبة على الهاتف دون إنترنت (مكتبة adhan)، من الموقع أو بالاختيار من قائمة مدن.
+- تذكير بكل صلاة، وبأذكار الصباح بعد الفجر، وأذكار المساء بعد العصر، وأذكار النوم.
+- ويدجت للشاشة الرئيسية: ورد الحديث، وفائدة من الدفتر.
+
 ## مصدر النص
 
-نص صحيح البخاري مأخوذ من مجموعة البيانات المفتوحة [fawazahmed0/hadith-api](https://github.com/fawazahmed0/hadith-api) (إصدار `ara-bukhari`، عن sunnah.com) بترقيم فتح الباري (7563 حديثاً)، وأسماء الكتب من [AhmedBaset/hadith-json](https://github.com/AhmedBaset/hadith-json). لم يُكتب أي نص يدوياً. السكربت `tools/build_db.py` يبني `assets/data/bukhari.db` من الملفين.
+نص صحيح البخاري مأخوذ من مجموعة البيانات المفتوحة [fawazahmed0/hadith-api](https://github.com/fawazahmed0/hadith-api) (إصدار `ara-bukhari`، عن sunnah.com) بترقيم فتح الباري (7563 حديثاً)، وأسماء الكتب من [AhmedBaset/hadith-json](https://github.com/AhmedBaset/hadith-json). لم يُكتب أي نص يدوياً.
+
+نص الأذكار من «حصن المسلم» عبر [osamayy/azkar-db](https://github.com/osamayy/azkar-db)، ويبنيه `tools/build_adhkar.py` إلى `assets/data/adhkar.json`. السكربت `tools/build_db.py` يبني `assets/data/bukhari.db` من الملفين.
 
 ## الخطوط
 

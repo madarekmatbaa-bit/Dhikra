@@ -146,7 +146,7 @@ class SettingsScreen extends StatelessWidget {
           _Group(children: [
             ListTile(
               leading: const BrandMark(size: 34),
-              title: const Text('ذِكرى · الإصدار 0.1'),
+              title: const Text('ذِكرى · الإصدار 0.2'),
               subtitle: const Text(
                   'نص صحيح البخاري من مجموعة بيانات مفتوحة (hadith-api) مأخوذة عن موقع sunnah.com، بترقيم فتح الباري. '
                   'يعمل التطبيق دون إنترنت، وكل بياناتك على جهازك.'),

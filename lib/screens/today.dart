@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../db/adhkar_data.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../util/arabic.dart';
 import '../widgets/brand.dart';
+import 'adhkar_tab.dart';
 import 'benefit_edit.dart';
 import 'reader.dart';
 import 'settings.dart';
@@ -71,6 +73,10 @@ class TodayScreen extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(child: _ForecastTile(state: s)),
           ]),
+          const SizedBox(height: 12),
+          const PrayerTimesCard(compact: true),
+          const SizedBox(height: 12),
+          const _AdhkarRow(),
           const SizedBox(height: 12),
           _BenefitOfDay(onOpenTab: onOpenTab),
         ],
@@ -241,7 +247,7 @@ class _BenefitOfDay extends StatelessWidget {
         Row(children: [
           const Label('من دفترك'),
           const Spacer(),
-          TextButton(onPressed: () => onOpenTab(2), child: const Text('كل الفوائد')),
+          TextButton(onPressed: () => onOpenTab(3), child: const Text('كل الفوائد')),
         ]),
         if (b.title.isNotEmpty) Text(b.title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         const SizedBox(height: 4),
@@ -250,5 +256,39 @@ class _BenefitOfDay extends StatelessWidget {
         Text(b.sourceLabel, style: TextStyle(color: pal.muted, fontSize: 13)),
       ]),
     );
+  }
+}
+
+class _AdhkarRow extends StatelessWidget {
+  const _AdhkarRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<AppState>();
+    final pal = Palette.of(context);
+    Widget chip(AdhkarSet set, String label) {
+      final done = s.adhkarDone(set);
+      return Expanded(
+        child: SectionCard(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+          color: done ? pal.soft : null,
+          onTap: () => openAdhkar(context, set),
+          child: Column(children: [
+            Icon(done ? Icons.check_circle : Icons.radio_button_unchecked,
+                color: done ? AppColors.sage : pal.muted, size: 22),
+            const SizedBox(height: 6),
+            Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+          ]),
+        ),
+      );
+    }
+
+    return Row(children: [
+      chip(AdhkarSet.morning, 'أذكار الصباح'),
+      const SizedBox(width: 8),
+      chip(AdhkarSet.evening, 'أذكار المساء'),
+      const SizedBox(width: 8),
+      chip(AdhkarSet.sleep, 'أذكار النوم'),
+    ]);
   }
 }
