@@ -25,15 +25,19 @@ jobs:
           channel: stable
           cache: true
 
+      # بلا مفتاح التوقيع نوقف البناء، لأن نسخة بمفتاح آخر لا تُثبَّت فوق النسخة الموجودة على الهاتف.
       - name: تجهيز مفتاح التوقيع
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        if: env.KEYSTORE_BASE64 != ''
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > android/app/dhikra.jks
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::أضف السرّين KEYSTORE_BASE64 و KEYSTORE_PASSWORD في Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/dhikra.p12
           cat > android/key.properties <<PROPS
-          storeFile=dhikra.jks
+          storeFile=dhikra.p12
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=dhikra
           keyPassword=$KEYSTORE_PASSWORD
