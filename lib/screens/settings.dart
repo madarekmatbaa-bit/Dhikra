@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../db/bukhari_db.dart';
 import '../services/notifications.dart';
+import '../services/updates.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../util/arabic.dart';
@@ -146,11 +147,19 @@ class SettingsScreen extends StatelessWidget {
           _Group(children: [
             ListTile(
               leading: const BrandMark(size: 34),
-              title: const Text('ذِكرى · الإصدار 0.2'),
+              title: Text('ذِكرى · الإصدار 0.4${appBuild > 0 ? ' · نسخة $appBuild' : ''}'),
               subtitle: const Text(
+                  'نص القرآن وخطه من مجمع الملك فهد لطباعة المصحف الشريف. '
                   'نص صحيح البخاري من مجموعة بيانات مفتوحة (hadith-api) مأخوذة عن موقع sunnah.com، بترقيم فتح الباري. '
                   'يعمل التطبيق دون إنترنت، وكل بياناتك على جهازك.'),
               isThreeLine: true,
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.system_update_outlined),
+              title: const Text('تحقق من تحديث'),
+              subtitle: const Text('يحتاج إنترنت. التحديث يُثبَّت فوق النسخة الحالية ولا تضيع بياناتك.'),
+              onTap: () => checkUpdateInteractive(context),
             ),
           ]),
         ],
@@ -232,4 +241,30 @@ class _Group extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(child: Column(children: children));
+}
+
+/// فحص التحديث من الإعدادات أو من بطاقة «اليوم»، مع رسالة للمستخدم.
+Future<void> checkUpdateInteractive(BuildContext context) async {
+  final s = context.read<AppState>();
+  toast(context, 'جارٍ الفحص…');
+  final u = await s.checkUpdate(force: true);
+  if (!context.mounted) return;
+  if (u == null) {
+    final l = s.update;
+    toast(context, l == null ? 'عندك أحدث نسخة، أو لا يوجد اتصال بالإنترنت' : 'عندك أحدث نسخة');
+    return;
+  }
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (c) => AlertDialog(
+      title: Text('نسخة جديدة: ${u.build}'),
+      content: const Text(
+          'تنزل النسخة من المتصفح، ثم افتح الملف من التنزيلات واضغط «تحديث». تُثبَّت فوق الحالية وتبقى بياناتك كما هي.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('لاحقاً')),
+        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('نزّلها')),
+      ],
+    ),
+  );
+  if (ok == true) await Updates.download(u);
 }

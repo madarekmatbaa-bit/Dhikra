@@ -54,6 +54,21 @@ class TodayScreen extends StatelessWidget {
             ),
           ]),
           const SizedBox(height: 20),
+          if (s.update != null) ...[
+            SectionCard(
+              color: pal.highlight,
+              onTap: () => checkUpdateInteractive(context),
+              child: Row(children: [
+                const Icon(Icons.system_update_outlined, color: AppColors.olive),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text('نسخة جديدة من ذِكرى متاحة (${s.update!.build}). اضغط لتنزيلها.',
+                      style: const TextStyle(fontSize: 15)),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 12),
+          ],
           if (s.quran.enabled) ...[
             const QuranTodayCard(compact: true),
             const SizedBox(height: 12),

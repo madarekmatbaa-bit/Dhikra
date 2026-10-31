@@ -11,6 +11,7 @@ import '../db/user_db.dart';
 import '../services/home_widgets.dart';
 import '../services/notifications.dart';
 import '../services/prayer.dart';
+import '../services/updates.dart';
 import '../util/arabic.dart';
 import 'library.dart';
 import 'quran_review.dart';
@@ -102,6 +103,22 @@ class AppState extends ChangeNotifier {
     ready = true;
     notifyListeners();
     reschedule().catchError((_) {});
+    checkUpdate();
+  }
+
+  // ---------- التحديثات ----------
+
+  UpdateInfo? update;
+
+  /// يفحص مرة في اليوم بصمت؛ [force] للفحص من الإعدادات.
+  Future<UpdateInfo?> checkUpdate({bool force = false}) async {
+    final today = todayKey;
+    if (!force && _prefs.getString('update_checked') == today) return update;
+    final u = await Updates.available();
+    await _prefs.setString('update_checked', today);
+    update = u;
+    notifyListeners();
+    return u;
   }
 
   /// يعيد جدولة كل التذكيرات (الورد، الصلاة، الأذكار).

@@ -93,8 +93,9 @@ class UserDb {
 
   Future<void> open() async {
     final path = p.join(await getDatabasesPath(), 'user.db');
-    db = await openDatabase(path, version: 2, onUpgrade: (db, from, to) async {
+    db = await openDatabase(path, version: 3, onUpgrade: (db, from, to) async {
       if (from < 2) await _createV2(db);
+      if (from < 3) await _createV3(db);
     }, onCreate: (db, v) async {
       final b = db.batch();
       b.execute('''CREATE TABLE wird_plans(
@@ -115,8 +116,12 @@ class UserDb {
         PRIMARY KEY(benefit_id, tag_id))''');
       await b.commit(noResult: true);
       await _createV2(db);
+      await _createV3(db);
     });
   }
+
+  /// الإصدار 3: رفوف المكتبة.
+  static Future<void> _createV3(Database db) => db.execute('ALTER TABLE books ADD COLUMN shelf TEXT');
 
   /// الإصدار 2: مراجعة القرآن والمكتبة.
   static Future<void> _createV2(Database db) async {

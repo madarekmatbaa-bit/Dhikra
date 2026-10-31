@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -20,7 +21,10 @@ class Book {
   final int position; // أول صفحة لم تُقرأ بعد
   final int lastPage; // آخر صفحة فُتحت
   final String addedAt;
-  const Book(this.id, this.title, this.filePath, this.pages, this.perDay, this.position, this.lastPage, this.addedAt);
+  final String? shelf;
+  final String? finishedAt;
+  const Book(this.id, this.title, this.filePath, this.pages, this.perDay, this.position, this.lastPage, this.addedAt,
+      {this.shelf, this.finishedAt});
 
   bool get finished => position > pages;
   bool get fileExists => File(filePath).existsSync();
@@ -35,6 +39,8 @@ class Book {
         r['position'] as int,
         r['last_page'] as int,
         r['added_at'] as String,
+        shelf: r['shelf'] as String?,
+        finishedAt: r['finished_at'] as String?,
       );
 }
 
@@ -126,7 +132,7 @@ class Library {
   }
 
   /// ينسخ ملف PDF إلى مجلد التطبيق ويضيفه للمكتبة.
-  Future<Book> addBook(String sourcePath, String title, {int perDay = 10}) async {
+  Future<Book> addBook(String sourcePath, String title, {int perDay = 10, String? shelf, bool alreadyRead = false}) async {
     final dir = Directory(p.join((await getApplicationDocumentsDirectory()).path, 'books'));
     await dir.create(recursive: true);
     final dest = p.join(dir.path, 'book_${DateTime.now().millisecondsSinceEpoch}.pdf');
@@ -137,9 +143,11 @@ class Library {
       'file_path': dest,
       'pages': pages,
       'per_day': perDay,
-      'position': 1,
+      'position': alreadyRead ? pages + 1 : 1,
       'last_page': 1,
       'added_at': clock().toIso8601String(),
+      'shelf': shelf,
+      'finished_at': alreadyRead ? clock().toIso8601String() : null,
     });
     await load();
     changed();
@@ -206,6 +214,7 @@ class Library {
     var newPos = cur.position;
     if (readUpTo >= cur.position && readUpTo - cur.position < 50) newPos = readUpTo + 1;
     if (newPos != cur.position) values['position'] = newPos;
+    if (newPos > cur.pages && cur.finishedAt == null) values['finished_at'] = clock().toIso8601String();
     await userDb().update('books', values, where: 'id = ?', whereArgs: [b.id]);
     if (newPos != cur.position) {
       await ensureToday(notify: false);
@@ -246,6 +255,90 @@ class Library {
     if (b.finished) return null;
     final left = b.pages - b.position + 1;
     return dateOnly(clock()).add(Duration(days: (left / max(1, b.perDay)).ceil() - 1));
+  }
+
+  // ---------- الرفوف ----------
+
+  /// الرفوف بالترتيب الذي أنشأها به المستخدم، مع أي رف عليه كتب.
+  List<String> get shelves {
+    List<String> saved;
+    try {
+      saved = (jsonDecode(prefs().getString('library_shelves') ?? '[]') as List).cast<String>();
+    } catch (_) {
+      saved = [];
+    }
+    for (final b in books) {
+      if (b.shelf != null && !saved.contains(b.shelf)) saved.add(b.shelf!);
+    }
+    return saved;
+  }
+
+  Future<void> _saveShelves(List<String> l) => prefs().setString('library_shelves', jsonEncode(l));
+
+  Future<void> addShelf(String name) async {
+    final n = name.trim();
+    if (n.isEmpty || shelves.contains(n)) return;
+    await _saveShelves([...shelves, n]);
+    changed();
+  }
+
+  Future<void> renameShelf(String old, String name) async {
+    final n = name.trim();
+    if (n.isEmpty || n == old) return;
+    await _saveShelves([for (final x in shelves) if (x != n) x == old ? n : x]);
+    await userDb().update('books', {'shelf': n}, where: 'shelf = ?', whereArgs: [old]);
+    await load();
+    changed();
+  }
+
+  /// يحذف الرف وتبقى كتبه في المكتبة بلا رف.
+  Future<void> deleteShelf(String name) async {
+    await userDb().update('books', {'shelf': null}, where: 'shelf = ?', whereArgs: [name]);
+    await load();
+    await _saveShelves([for (final x in shelves) if (x != name) x]);
+    changed();
+  }
+
+  Future<void> moveShelf(String name, int delta) async {
+    final l = shelves;
+    final i = l.indexOf(name);
+    final j = i + delta;
+    if (i < 0 || j < 0 || j >= l.length) return;
+    l[i] = l[j];
+    l[j] = name;
+    await _saveShelves(l);
+    changed();
+  }
+
+  Future<void> setShelf(Book b, String? shelf) async {
+    if (shelf != null) await addShelf(shelf);
+    await userDb().update('books', {'shelf': shelf}, where: 'id = ?', whereArgs: [b.id]);
+    await load();
+    changed();
+  }
+
+  // ---------- قرأته ----------
+
+  /// يعلّم الكتاب مقروءاً كله، فيتوقف ورده.
+  Future<void> markFinished(Book b) async {
+    await userDb().update('books', {'position': b.pages + 1, 'finished_at': clock().toIso8601String()},
+        where: 'id = ?', whereArgs: [b.id]);
+    final t = todayOf(b.id);
+    if (t != null && !t.done) {
+      await _putLog(b.id, BookLog(t.date, t.fromPos, t.toPos, t.readCount, true));
+    }
+    await load();
+    changed();
+  }
+
+  /// يعيد الكتاب إلى القراءة من أوله.
+  Future<void> restart(Book b) async {
+    await userDb().update('books', {'position': 1, 'last_page': 1, 'finished_at': null},
+        where: 'id = ?', whereArgs: [b.id]);
+    await userDb().delete('book_logs', where: 'book_id = ? AND date = ?', whereArgs: [b.id, _today]);
+    _logs[b.id]?.removeWhere((l) => l.date == _today);
+    await load();
+    changed();
   }
 
   /// طريقة العرض المفضلة لكل كتاب: نص مفرّغ (افتراضياً) أو صور الصفحات.
