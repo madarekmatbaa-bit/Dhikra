@@ -203,7 +203,7 @@ class _PrayerTimesCardState extends State<PrayerTimesCard> {
 }
 
 /// ينقل إلى تبويب الأذكار في الشاشة الرئيسية.
-void openAdhkarTab(BuildContext context) => HomeShellTabs.open?.call(2);
+void openAdhkarTab(BuildContext context) => HomeShellTabs.open?.call(3);
 
 class HomeShellTabs {
   static void Function(int)? open;

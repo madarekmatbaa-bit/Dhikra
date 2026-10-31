@@ -55,7 +55,7 @@ class Benefit {
   final int? id;
   final String title;
   final String body;
-  final String sourceType; // hadith | free | book
+  final String sourceType; // hadith | free | book | quran
   final String? sourceRef;
   final bool pinned;
   final String createdAt;
@@ -73,7 +73,7 @@ class Benefit {
 
   String get sourceLabel => switch (sourceType) {
         'hadith' => 'البخاري · حديث $sourceRef',
-        'book' => sourceRef ?? 'كتاب',
+        'book' || 'quran' => sourceRef ?? 'كتاب',
         _ => 'ملاحظة حرة',
       };
 }
@@ -85,7 +85,9 @@ class UserDb {
 
   Future<void> open() async {
     final path = p.join(await getDatabasesPath(), 'user.db');
-    db = await openDatabase(path, version: 1, onCreate: (db, v) async {
+    db = await openDatabase(path, version: 2, onUpgrade: (db, from, to) async {
+      if (from < 2) await _createV2(db);
+    }, onCreate: (db, v) async {
       final b = db.batch();
       b.execute('''CREATE TABLE wird_plans(
         id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, source_id INTEGER, unit TEXT NOT NULL,
@@ -104,7 +106,28 @@ class UserDb {
       b.execute('''CREATE TABLE benefit_tags(benefit_id INTEGER NOT NULL, tag_id INTEGER NOT NULL,
         PRIMARY KEY(benefit_id, tag_id))''');
       await b.commit(noResult: true);
+      await _createV2(db);
     });
+  }
+
+  /// الإصدار 2: مراجعة القرآن والمكتبة.
+  static Future<void> _createV2(Database db) async {
+    final b = db.batch();
+    b.execute('''CREATE TABLE IF NOT EXISTS quran_logs(
+      date TEXT PRIMARY KEY, new_pages TEXT NOT NULL DEFAULT '', recent_pages TEXT NOT NULL DEFAULT '',
+      old_pages TEXT NOT NULL DEFAULT '', new_done INTEGER NOT NULL DEFAULT 0, recent_done INTEGER NOT NULL DEFAULT 0,
+      old_done INTEGER NOT NULL DEFAULT 0)''');
+    b.execute('''CREATE TABLE IF NOT EXISTS quran_notes(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, sura INTEGER NOT NULL, aya INTEGER NOT NULL, kind TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)''');
+    b.execute('''CREATE TABLE IF NOT EXISTS books(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, file_path TEXT NOT NULL, pages INTEGER NOT NULL,
+      per_day INTEGER NOT NULL DEFAULT 10, position INTEGER NOT NULL DEFAULT 1, last_page INTEGER NOT NULL DEFAULT 1,
+      added_at TEXT NOT NULL, finished_at TEXT)''');
+    b.execute('''CREATE TABLE IF NOT EXISTS book_logs(
+      book_id INTEGER NOT NULL, date TEXT NOT NULL, from_pos INTEGER NOT NULL, to_pos INTEGER NOT NULL,
+      read_count INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(book_id, date))''');
+    await b.commit(noResult: true);
   }
 
   // ---------- الأوراد ----------
@@ -239,7 +262,10 @@ class UserDb {
 
   // ---------- النسخ الاحتياطي ----------
 
-  static const _tables = ['wird_plans', 'wird_logs', 'progress', 'benefits', 'tags', 'benefit_tags'];
+  static const _tables = [
+    'wird_plans', 'wird_logs', 'progress', 'benefits', 'tags', 'benefit_tags', //
+    'quran_logs', 'quran_notes', 'books', 'book_logs',
+  ];
 
   Future<Map<String, Object?>> exportAll() async {
     return {for (final t in _tables) t: await db.query(t)};

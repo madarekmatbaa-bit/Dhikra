@@ -141,6 +141,14 @@ class _BenefitEditScreenState extends State<BenefitEditScreen> {
                     MaterialPageRoute(builder: (_) => ReaderScreen(start: int.tryParse(sourceRef ?? '') ?? 1))),
               ),
             ),
+          if ((sourceType == 'book' || sourceType == 'quran') && sourceRef != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Chip(
+                avatar: Icon(sourceType == 'quran' ? Icons.auto_stories_outlined : Icons.local_library_outlined, size: 18),
+                label: Text(sourceRef!),
+              ),
+            ),
           TextField(
             controller: title,
             textInputAction: TextInputAction.next,

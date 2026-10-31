@@ -3,10 +3,12 @@ import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
 import 'adhkar_tab.dart';
-import 'benefits.dart';
 import 'bukhari_index.dart';
-import 'stats.dart';
+import 'library_tab.dart';
+import 'quran_tab.dart';
 import 'today.dart';
+import 'benefits.dart';
+import 'stats.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -43,7 +45,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     // يوم جديد أثناء بقاء التطبيق مفتوحاً في الخلفية.
     if (state == AppLifecycleState.resumed) {
       final s = context.read<AppState>();
-      s.ensureToday();
+      s.newDayCheck();
       s.reschedule().catchError((_) {});
     }
   }
@@ -55,10 +57,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         index: tab,
         children: [
           TodayScreen(onOpenTab: (i) => setState(() => tab = i)),
+          const QuranTab(),
           const BukhariIndexScreen(),
           const AdhkarTab(),
-          const BenefitsScreen(),
-          const StatsScreen(),
+          const LibraryTab(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -67,17 +69,22 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.wb_sunny_outlined), selectedIcon: Icon(Icons.wb_sunny), label: 'اليوم'),
           NavigationDestination(
+              icon: Icon(Icons.auto_stories_outlined), selectedIcon: Icon(Icons.auto_stories), label: 'القرآن'),
+          NavigationDestination(
               icon: Icon(Icons.menu_book_outlined), selectedIcon: Icon(Icons.menu_book), label: 'البخاري'),
           NavigationDestination(
               icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome), label: 'الأذكار'),
           NavigationDestination(
-              icon: Icon(Icons.bookmark_border), selectedIcon: Icon(Icons.bookmark), label: 'الفوائد'),
-          NavigationDestination(
-              icon: Icon(Icons.calendar_month_outlined),
-              selectedIcon: Icon(Icons.calendar_month),
-              label: 'الإحصاءات'),
+              icon: Icon(Icons.local_library_outlined), selectedIcon: Icon(Icons.local_library), label: 'المكتبة'),
         ],
       ),
     );
   }
 }
+
+/// تفتح الفوائد والإحصاءات صفحةً مستقلة بعد أن خرجتا من الشريط السفلي.
+void openBenefitsPage(BuildContext context) => Navigator.push(
+    context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(), body: const BenefitsScreen())));
+
+void openStatsPage(BuildContext context) =>
+    Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(), body: const StatsScreen())));

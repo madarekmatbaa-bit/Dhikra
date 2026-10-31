@@ -6,11 +6,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../db/adhkar_data.dart';
 import '../db/bukhari_db.dart';
+import '../db/quran_db.dart';
 import '../db/user_db.dart';
 import '../services/home_widgets.dart';
 import '../services/notifications.dart';
 import '../services/prayer.dart';
 import '../util/arabic.dart';
+import 'library.dart';
+import 'quran_review.dart';
 
 class Forecast {
   final int remaining;
@@ -24,7 +27,23 @@ class AppState extends ChangeNotifier {
   final bukhari = BukhariDb();
   final user = UserDb();
   final adhkar = AdhkarData();
+  final quranDb = QuranDb();
   late final SharedPreferences _prefs;
+  late final quran = QuranReview(
+    db: quranDb,
+    userDb: () => user.db,
+    prefs: () => _prefs,
+    clock: () => clock(),
+    changed: notifyListeners,
+    reschedule: reschedule,
+  );
+  late final library = Library(
+    userDb: () => user.db,
+    prefs: () => _prefs,
+    clock: () => clock(),
+    changed: notifyListeners,
+    reschedule: reschedule,
+  );
 
   bool ready = false;
   WirdPlan? plan;
@@ -78,6 +97,7 @@ class AppState extends ChangeNotifier {
     await bukhari.open();
     await user.open();
     await adhkar.load();
+    await quranDb.open();
     await _reload();
     ready = true;
     notifyListeners();
@@ -92,6 +112,8 @@ class AppState extends ChangeNotifier {
         prayerAlerts: prayerAlerts,
         morningAfterFajr: morningAfterFajr,
         eveningAfterAsr: eveningAfterAsr,
+        quran: quran.enabled ? quran.reminder : null,
+        library: library.books.any((b) => !b.finished) ? library.reminder : null,
       ));
 
   Future<void> _reload() async {
@@ -102,6 +124,16 @@ class AppState extends ChangeNotifier {
       logs = await user.logs(plan!.id);
     }
     await reloadBenefits(notify: false);
+    await quran.load();
+    await library.load();
+  }
+
+  /// يوم جديد: ينشئ ورد اليوم لكل الأوراد.
+  Future<void> newDayCheck() async {
+    await ensureToday(notify: false);
+    await quran.ensureToday(notify: false);
+    await library.ensureToday(notify: false);
+    notifyListeners();
   }
 
   // ---------- الورد ----------

@@ -8,6 +8,9 @@ import '../util/arabic.dart';
 import '../widgets/brand.dart';
 import 'adhkar_tab.dart';
 import 'benefit_edit.dart';
+import 'home_shell.dart';
+import 'library_tab.dart';
+import 'quran_tab.dart';
 import 'reader.dart';
 import 'settings.dart';
 
@@ -35,12 +38,26 @@ class TodayScreen extends StatelessWidget {
               ]),
             ),
             IconButton(
+              tooltip: 'دفتر الفوائد',
+              icon: const Icon(Icons.bookmark_border),
+              onPressed: () => openBenefitsPage(context),
+            ),
+            IconButton(
+              tooltip: 'الإحصاءات',
+              icon: const Icon(Icons.calendar_month_outlined),
+              onPressed: () => openStatsPage(context),
+            ),
+            IconButton(
               tooltip: 'الإعدادات',
               icon: const Icon(Icons.settings_outlined),
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
             ),
           ]),
           const SizedBox(height: 20),
+          if (s.quran.enabled) ...[
+            const QuranTodayCard(compact: true),
+            const SizedBox(height: 12),
+          ],
           const _WirdCard(),
           if (s.canExcuseYesterday) ...[
             const SizedBox(height: 12),
@@ -73,6 +90,25 @@ class TodayScreen extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(child: _ForecastTile(state: s)),
           ]),
+          for (final b in s.library.books.where((b) => !b.finished)) ...[
+            const SizedBox(height: 12),
+            BookCard(book: b, compact: true),
+          ],
+          if (!s.quran.enabled) ...[
+            const SizedBox(height: 12),
+            SectionCard(
+              color: pal.soft,
+              onTap: () => onOpenTab(1),
+              child: Row(children: [
+                const Icon(Icons.auto_stories_outlined, color: AppColors.olive),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text('أضف ورد حفظ القرآن ومراجعته: الجديد والقريب والبعيد.', style: TextStyle(fontSize: 15)),
+                ),
+                Icon(Icons.chevron_left, color: pal.muted),
+              ]),
+            ),
+          ],
           const SizedBox(height: 12),
           const PrayerTimesCard(compact: true),
           const SizedBox(height: 12),
@@ -247,7 +283,7 @@ class _BenefitOfDay extends StatelessWidget {
         Row(children: [
           const Label('من دفترك'),
           const Spacer(),
-          TextButton(onPressed: () => onOpenTab(3), child: const Text('كل الفوائد')),
+          TextButton(onPressed: () => openBenefitsPage(context), child: const Text('كل الفوائد')),
         ]),
         if (b.title.isNotEmpty) Text(b.title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         const SizedBox(height: 4),

@@ -55,6 +55,9 @@ class Palette extends ThemeExtension<Palette> {
 const uiFont = 'Readex';
 const readingFont = 'Naskh';
 
+/// خط مصحف المدينة من مجمع الملك فهد، يطابق نص المصحف المضمّن.
+const quranFont = 'Hafs';
+
 ThemeData buildTheme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
   final bg = dark ? AppColors.nightBg : AppColors.paper;

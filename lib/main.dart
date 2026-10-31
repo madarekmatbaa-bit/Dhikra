@@ -49,7 +49,14 @@ void _openFromNotification(AppState state, String payload) {
     nav.push(MaterialPageRoute(builder: (_) => ReaderScreen(start: state.position, wirdMode: true)));
   } else if (payload == 'benefits') {
     nav.popUntil((r) => r.isFirst);
-    HomeShellTabs.open?.call(3);
+    final ctx = navigatorKey.currentContext;
+    if (ctx != null) openBenefitsPage(ctx);
+  } else if (payload == 'quran') {
+    nav.popUntil((r) => r.isFirst);
+    HomeShellTabs.open?.call(1);
+  } else if (payload == 'library') {
+    nav.popUntil((r) => r.isFirst);
+    HomeShellTabs.open?.call(4);
   } else if (payload == 'prayer') {
     final ctx = navigatorKey.currentContext;
     if (ctx != null) openAdhkarTab(ctx);

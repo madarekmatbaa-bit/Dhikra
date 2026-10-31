@@ -14,7 +14,11 @@ class ReminderPlan {
   final Set<Salah> prayerAlerts;
   final int? morningAfterFajr; // دقائق بعد الفجر، أو null إذا كان مطفأً
   final int? eveningAfterAsr; // دقائق بعد العصر
+  final TimeOfDay? quran;
+  final TimeOfDay? library;
   const ReminderPlan({
+    this.quran,
+    this.library,
     this.wird,
     this.sleep,
     this.prayer,
@@ -119,6 +123,13 @@ class Reminders {
     }
     if (plan.sleep != null) {
       await _daily(2, plan.sleep!, 'أذكار النوم', 'قبل أن تنام: أذكار النوم', 'adhkar', 'تذكير الأذكار', 'sleep');
+    }
+    if (plan.quran != null) {
+      await _daily(3, plan.quran!, 'ذِكرى', 'حان وقت ورد القرآن: الحفظ والمراجعة', 'daily_wird', 'تذكير الورد اليومي',
+          'quran');
+    }
+    if (plan.library != null) {
+      await _daily(4, plan.library!, 'ذِكرى', 'حان وقت وردك من كتبك', 'daily_wird', 'تذكير الورد اليومي', 'library');
     }
     final p = plan.prayer;
     if (p == null) return;
