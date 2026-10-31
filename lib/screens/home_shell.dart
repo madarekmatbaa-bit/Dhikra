@@ -83,8 +83,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 }
 
 /// تفتح الفوائد والإحصاءات صفحةً مستقلة بعد أن خرجتا من الشريط السفلي.
-void openBenefitsPage(BuildContext context) => Navigator.push(
-    context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(), body: const BenefitsScreen())));
+void openBenefitsPage(BuildContext context, {String? source}) => Navigator.push(
+    context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(), body: BenefitsScreen(source: source))));
 
 void openStatsPage(BuildContext context) =>
     Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(), body: const StatsScreen())));

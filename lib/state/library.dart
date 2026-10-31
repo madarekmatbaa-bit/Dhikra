@@ -248,6 +248,10 @@ class Library {
     return dateOnly(clock()).add(Duration(days: (left / max(1, b.perDay)).ceil() - 1));
   }
 
+  /// طريقة العرض المفضلة لكل كتاب: نص مفرّغ (افتراضياً) أو صور الصفحات.
+  bool textMode(int id) => prefs().getBool('book_text_$id') ?? true;
+  Future<void> setTextMode(int id, bool v) => prefs().setBool('book_text_$id', v);
+
   TimeOfDay? get reminder => parseTime(prefs().getString('library_reminder'));
 
   Future<void> setReminder(TimeOfDay? t) async {

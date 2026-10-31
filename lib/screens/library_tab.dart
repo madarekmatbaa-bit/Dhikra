@@ -10,6 +10,7 @@ import '../theme.dart';
 import '../util/arabic.dart';
 import '../widgets/brand.dart';
 import 'book_reader.dart';
+import 'home_shell.dart';
 
 class LibraryTab extends StatelessWidget {
   const LibraryTab({super.key});
@@ -297,6 +298,8 @@ class BookCard extends StatelessWidget {
               ),
             );
             if (n != null) await lib.update(b, position: n.clamp(1, b.pages + 1));
+          case 'benefits':
+            if (context.mounted) openBenefitsPage(context, source: b.title);
           case 'relink':
             if (context.mounted) await _relink(context, b);
           case 'del':
@@ -316,6 +319,7 @@ class BookCard extends StatelessWidget {
         }
       },
       itemBuilder: (_) => const [
+        PopupMenuItem(value: 'benefits', child: Text('فوائد هذا الكتاب')),
         PopupMenuItem(value: 'edit', child: Text('الاسم وصفحات كل يوم')),
         PopupMenuItem(value: 'pos', child: Text('غيّر موضع القراءة')),
         PopupMenuItem(value: 'relink', child: Text('اختر الملف من جديد')),

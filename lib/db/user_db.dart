@@ -71,6 +71,14 @@ class Benefit {
     this.tags = const [],
   });
 
+  /// المجموعة التي تُفرز بها الفائدة: البخاري، القرآن، اسم الكتاب، أو ملاحظات حرة.
+  String get sourceGroup => switch (sourceType) {
+        'hadith' => 'صحيح البخاري',
+        'quran' => 'القرآن الكريم',
+        'book' => (sourceRef ?? 'كتاب').split(' · ').first,
+        _ => 'ملاحظات حرة',
+      };
+
   String get sourceLabel => switch (sourceType) {
         'hadith' => 'البخاري · حديث $sourceRef',
         'book' || 'quran' => sourceRef ?? 'كتاب',

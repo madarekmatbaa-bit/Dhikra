@@ -9,7 +9,9 @@ import '../widgets/share_card.dart';
 import 'benefit_edit.dart';
 
 class BenefitsScreen extends StatefulWidget {
-  const BenefitsScreen({super.key});
+  /// يفتح الدفتر مفروزاً على مصدر واحد، مثل اسم كتاب.
+  final String? source;
+  const BenefitsScreen({super.key, this.source});
 
   @override
   State<BenefitsScreen> createState() => _BenefitsScreenState();
@@ -17,6 +19,7 @@ class BenefitsScreen extends StatefulWidget {
 
 class _BenefitsScreenState extends State<BenefitsScreen> {
   String? tag;
+  late String? source = widget.source;
   String query = '';
 
   @override
@@ -26,9 +29,14 @@ class _BenefitsScreenState extends State<BenefitsScreen> {
     final q = normalizeArabic(query);
     final list = s.benefits.where((b) {
       if (tag != null && !b.tags.contains(tag)) return false;
+      if (source != null && b.sourceGroup != source) return false;
       if (q.isEmpty) return true;
       return normalizeArabic('${b.title} ${b.body} ${b.tags.join(' ')}').contains(q);
     }).toList();
+    final sources = <String, int>{};
+    for (final b in s.benefits) {
+      sources[b.sourceGroup] = (sources[b.sourceGroup] ?? 0) + 1;
+    }
 
     return Scaffold(
       floatingActionButton: FloatingActionButton.extended(
@@ -48,6 +56,28 @@ class _BenefitsScreenState extends State<BenefitsScreen> {
                   onChanged: (v) => setState(() => query = v),
                   decoration: const InputDecoration(hintText: 'ابحث في فوائدك', prefixIcon: Icon(Icons.search)),
                 ),
+                if (sources.length > 1) ...[
+                  const SizedBox(height: 12),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(children: [
+                      ChoiceChip(
+                        label: const Text('كل المصادر'),
+                        selected: source == null,
+                        onSelected: (_) => setState(() => source = null),
+                      ),
+                      for (final e in sources.entries) ...[
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          avatar: Icon(_sourceIcon(e.key, s), size: 16),
+                          label: Text('${e.key} · ${e.value}'),
+                          selected: source == e.key,
+                          onSelected: (_) => setState(() => source = e.key),
+                        ),
+                      ],
+                    ]),
+                  ),
+                ],
                 if (s.tags.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   SingleChildScrollView(
@@ -93,6 +123,16 @@ class _BenefitsScreenState extends State<BenefitsScreen> {
       ),
     );
   }
+}
+
+IconData _sourceIcon(String group, AppState s) {
+  final b = s.benefits.firstWhere((x) => x.sourceGroup == group);
+  return switch (b.sourceType) {
+    'hadith' => Icons.menu_book_outlined,
+    'quran' => Icons.auto_stories_outlined,
+    'book' => Icons.local_library_outlined,
+    _ => Icons.edit_note,
+  };
 }
 
 class _BenefitTile extends StatelessWidget {
