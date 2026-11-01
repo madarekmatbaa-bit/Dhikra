@@ -154,8 +154,8 @@ class SettingsScreen extends StatelessWidget {
                   'يعمل التطبيق دون إنترنت، وكل بياناتك على جهازك.'),
               isThreeLine: true,
             ),
-            const Divider(),
-            ListTile(
+            if (!playStore) const Divider(),
+            if (!playStore) ListTile(
               leading: const Icon(Icons.system_update_outlined),
               title: const Text('تحقق من تحديث'),
               subtitle: const Text('يحتاج إنترنت. التحديث يُثبَّت فوق النسخة الحالية ولا تضيع بياناتك.'),
