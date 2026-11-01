@@ -1,0 +1,72 @@
+name: بناء AAB لمتجر Google Play
+
+# يُشغَّل يدوياً من تبويب Actions عند تجهيز نسخة للمتجر.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.8
+          channel: stable
+          cache: true
+
+      # مفتاح الرفع (upload key) خاص بالمتجر، ومنفصل عن مفتاح ملفات APK المباشرة.
+      # جوجل تعيد توقيع التطبيق بمفتاحها (Play App Signing)، وهذا المفتاح يثبت فقط أن الرفع منك.
+      - name: تجهيز مفتاح الرفع
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+          UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$UPLOAD_KEYSTORE_BASE64" ] || [ -z "$UPLOAD_KEYSTORE_PASSWORD" ]; then
+            echo "::error::أضف السرّين UPLOAD_KEYSTORE_BASE64 و UPLOAD_KEYSTORE_PASSWORD في Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+          echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > android/app/upload.p12
+          cat > android/key.properties <<PROPS
+          storeFile=upload.p12
+          storePassword=$UPLOAD_KEYSTORE_PASSWORD
+          keyAlias=upload
+          keyPassword=$UPLOAD_KEYSTORE_PASSWORD
+          PROPS
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+      # رقم النسخة (versionCode) يجب أن يزيد مع كل رفع للمتجر، فنأخذه من رقم التشغيل.
+      - run: >
+          flutter build appbundle --release
+          --build-number=${{ github.run_number }}
+          --dart-define=PLAY_STORE=true
+
+      - name: تسمية الملف
+        run: cp build/app/outputs/bundle/release/app-release.aab "dhikra-play-${{ github.run_number }}.aab"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dhikra-aab
+          path: dhikra-play-${{ github.run_number }}.aab
+
+      # إصدار تجريبي (prerelease) حتى لا يظنه فحص التحديث داخل التطبيق نسخة APK جديدة.
+      - name: نشر الملف للتحميل
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: play-${{ github.run_number }}
+          name: ذِكرى للمتجر · ${{ github.run_number }}
+          prerelease: true
+          body: ملف AAB للرفع على Google Play Console فقط، ولا يُثبَّت على الهاتف مباشرة.
+          files: dhikra-play-${{ github.run_number }}.aab

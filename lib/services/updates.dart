@@ -6,6 +6,9 @@ import 'package:url_launcher/url_launcher.dart';
 /// رقم هذه النسخة كما بُنيت على GitHub (build-N). صفر في البناء المحلي.
 const appBuild = int.fromEnvironment('BUILD_NUMBER');
 
+/// نسخة Google Play: المتجر وحده يحدّث التطبيق (سياسة جوجل تمنع التحديث من خارجه)، فنُطفئ فحص GitHub.
+const playStore = bool.fromEnvironment('PLAY_STORE');
+
 class UpdateInfo {
   final int build;
   final String url;
@@ -44,6 +47,7 @@ class Updates {
 
   /// نسخة أحدث من المثبّتة، إن وُجدت.
   static Future<UpdateInfo?> available() async {
+    if (playStore) return null;
     final l = await latest();
     if (l == null || appBuild == 0 || l.build <= appBuild) return null;
     return l;
