@@ -24,23 +24,30 @@ jobs:
           channel: stable
           cache: true
 
-      # مفتاح الرفع (upload key) خاص بالمتجر، ومنفصل عن مفتاح ملفات APK المباشرة.
-      # جوجل تعيد توقيع التطبيق بمفتاحها (Play App Signing)، وهذا المفتاح يثبت فقط أن الرفع منك.
+      # مفتاح الرفع (upload key): جوجل تعيد توقيع التطبيق بمفتاحها (Play App Signing)، وهذا المفتاح يثبت فقط أن الرفع منك.
+      # نستعمل مفتاحاً خاصاً بالمتجر إن وُجد (UPLOAD_*)، وإلا مفتاح ملفات APK نفسه (KEYSTORE_*).
       - name: تجهيز مفتاح الرفع
         env:
           UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
           UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
-          if [ -z "$UPLOAD_KEYSTORE_BASE64" ] || [ -z "$UPLOAD_KEYSTORE_PASSWORD" ]; then
-            echo "::error::أضف السرّين UPLOAD_KEYSTORE_BASE64 و UPLOAD_KEYSTORE_PASSWORD في Settings > Secrets and variables > Actions"
+          if [ -n "$UPLOAD_KEYSTORE_BASE64" ] && [ -n "$UPLOAD_KEYSTORE_PASSWORD" ]; then
+            KEY_B64="$UPLOAD_KEYSTORE_BASE64"; KEY_PW="$UPLOAD_KEYSTORE_PASSWORD"; ALIAS=upload
+          elif [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
+            KEY_B64="$KEYSTORE_BASE64"; KEY_PW="$KEYSTORE_PASSWORD"; ALIAS=dhikra
+            echo "::notice::لا يوجد مفتاح رفع خاص، فاستُعمل مفتاح ملفات APK."
+          else
+            echo "::error::أضف السرّين KEYSTORE_BASE64 و KEYSTORE_PASSWORD في Settings > Secrets and variables > Actions"
             exit 1
           fi
-          echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > android/app/upload.p12
+          echo "$KEY_B64" | base64 -d > android/app/upload.p12
           cat > android/key.properties <<PROPS
           storeFile=upload.p12
-          storePassword=$UPLOAD_KEYSTORE_PASSWORD
-          keyAlias=upload
-          keyPassword=$UPLOAD_KEYSTORE_PASSWORD
+          storePassword=$KEY_PW
+          keyAlias=$ALIAS
+          keyPassword=$KEY_PW
           PROPS
 
       - run: flutter pub get
