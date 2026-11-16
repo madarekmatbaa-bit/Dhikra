@@ -176,6 +176,20 @@ class QuranReview {
   int get lastPage => _p.getInt('q_last_page') ?? 1;
   Future<void> setLastPage(int p) => _p.setInt('q_last_page', p);
 
+  /// عرض المصحف: الصفحة على قد الشاشة (افتراضياً)، أو خط مكبَّر تمرَّر فيه الصفحة.
+  bool get fitPage => _p.getBool('q_fit_page') ?? true;
+  Future<void> setFitPage(bool v) async {
+    await _p.setBool('q_fit_page', v);
+    changed();
+  }
+
+  /// حجم خط المصحف في وضع التكبير.
+  double get zoomFont => _p.getDouble('q_zoom_font') ?? 30;
+  bool get followIntroSeen => _p.getBool('q_follow_intro') ?? false;
+  Future<void> setFollowIntroSeen() => _p.setBool('q_follow_intro', true);
+
+  Future<void> setZoomFont(double v) => _p.setDouble('q_zoom_font', v.clamp(16, 72).toDouble());
+
   String get _today => dateKey(clock());
 
   QuranLog? get today {

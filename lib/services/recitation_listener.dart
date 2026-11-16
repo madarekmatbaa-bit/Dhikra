@@ -1,0 +1,105 @@
+import 'dart:async';
+
+import 'package:speech_to_text/speech_to_text.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+
+import '../util/recitation.dart';
+
+/// يستمع إلى التلاوة بخدمة التعرّف على الكلام في الهاتف، ويرسل كلمات كل عبارة.
+/// الخدمة تتوقف بعد كل سكتة، فنعيد تشغيلها ما دام المستخدم لم يوقف المتابعة.
+class RecitationListener {
+  final _stt = SpeechToText();
+  bool active = false;
+  bool _ready = false;
+  Timer? _restart;
+
+  /// كلمات العبارة الحالية كاملة، وهل هذه عبارة جديدة.
+  void Function(List<String> words, bool newPhrase)? onWords;
+  void Function(String message)? onFatal;
+  void Function(double level)? onLevel;
+
+  bool _newPhrase = true;
+
+  /// يعيد رسالة خطأ إن تعذّر البدء، أو null إن بدأ.
+  Future<String?> start() async {
+    if (!_ready) {
+      _ready = await _stt.initialize(onError: (e) => _onError(e.errorMsg, e.permanent), onStatus: _onStatus);
+      if (!_ready) return 'خدمة التعرّف على الكلام غير متاحة في هذا الهاتف، أو لم تأذن بالميكروفون.';
+    }
+    final locales = await _stt.locales();
+    final hasArabic = locales.any((l) => l.localeId.toLowerCase().startsWith('ar'));
+    if (locales.isNotEmpty && !hasArabic) {
+      return 'لا تدعم خدمة التعرّف في هاتفك العربية. ثبّت تطبيق Google وأضف العربية من إعدادات الكتابة الصوتية.';
+    }
+    active = true;
+    await WakelockPlus.enable();
+    await _listen();
+    return null;
+  }
+
+  Future<void> stop() async {
+    active = false;
+    _restart?.cancel();
+    await WakelockPlus.disable();
+    if (_ready) await _stt.cancel();
+  }
+
+  Future<void> _listen() async {
+    if (!active || _stt.isListening) return;
+    _newPhrase = true;
+    try {
+      await _stt.listen(
+        onResult: (r) {
+          final w = recitationWords(r.recognizedWords);
+          if (w.isEmpty) return;
+          onWords?.call(w, _newPhrase);
+          _newPhrase = false;
+        },
+        onSoundLevelChange: (l) => onLevel?.call(l),
+        listenOptions: SpeechListenOptions(
+          localeId: 'ar_SA',
+          partialResults: true,
+          listenMode: ListenMode.dictation,
+          cancelOnError: false,
+          listenFor: const Duration(minutes: 10),
+          pauseFor: const Duration(seconds: 8),
+        ),
+      );
+    } catch (_) {
+      _scheduleRestart();
+    }
+  }
+
+  void _scheduleRestart([Duration d = const Duration(milliseconds: 400)]) {
+    if (!active) return;
+    _restart?.cancel();
+    _restart = Timer(d, _listen);
+  }
+
+  void _onStatus(String s) {
+    if (s == SpeechToText.doneStatus || s == SpeechToText.notListeningStatus) _scheduleRestart();
+  }
+
+  void _onError(String msg, bool permanent) {
+    if (!active) return;
+    const fatal = {
+      'error_permission',
+      'error_insufficient_permissions',
+      'error_language_not_supported',
+      'error_language_unavailable',
+    };
+    if (fatal.contains(msg)) {
+      stop();
+      onFatal?.call(
+        msg.contains('permission')
+            ? 'يحتاج التطبيق إذن الميكروفون ليتابع التلاوة.'
+            : 'العربية غير متاحة في خدمة التعرّف على الكلام في هاتفك.',
+      );
+      return;
+    }
+    // انقطاع الشبكة أو سكتة طويلة أو انشغال الخدمة: نعيد المحاولة بعد قليل.
+    _scheduleRestart(
+      msg == 'error_busy' || msg == 'error_network' ? const Duration(seconds: 2) : const Duration(milliseconds: 400),
+    );
+  }
+}

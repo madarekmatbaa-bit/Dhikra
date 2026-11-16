@@ -23,7 +23,10 @@ class Aya {
   final int page;
   final int juz;
   final String text;
-  const Aya(this.id, this.sura, this.aya, this.page, this.juz, this.text);
+
+  /// النص الإملائي المجرد من التشكيل، لمتابعة التلاوة والبحث.
+  final String plain;
+  const Aya(this.id, this.sura, this.aya, this.page, this.juz, this.text, {this.plain = ''});
 }
 
 /// نص المصحف من مجمع الملك فهد لطباعة المصحف الشريف (رواية حفص، الإصدار 18).
@@ -39,6 +42,7 @@ class QuranDb {
 
   /// نص البسملة كما في أول الفاتحة، دون رقم الآية.
   late final String basmala;
+  late final String basmalaPlain;
 
   final _pageCache = <int, List<Aya>>{};
 
@@ -61,8 +65,9 @@ class QuranDb {
     juzStart = [for (final r in j) r['p'] as int];
     final m = await _db.query('meta', where: 'key = ?', whereArgs: ['source']);
     source = m.isEmpty ? 'مجمع الملك فهد لطباعة المصحف الشريف' : m.first['value'] as String;
-    final b = await _db.query('ayat', columns: ['text'], where: 'id = 1');
+    final b = await _db.query('ayat', columns: ['text', 'plain'], where: 'id = 1');
     basmala = stripNumber(b.first['text'] as String);
+    basmalaPlain = b.first['plain'] as String;
   }
 
   static String stripNumber(String t) => t.replaceFirst(RegExp(r'[  ]*[٠-٩]+$'), '');
@@ -73,7 +78,8 @@ class QuranDb {
     final rows = await _db.query('ayat', where: 'page = ?', whereArgs: [n], orderBy: 'id');
     final list = [
       for (final r in rows)
-        Aya(r['id'] as int, r['sura'] as int, r['aya'] as int, r['page'] as int, r['juz'] as int, r['text'] as String),
+        Aya(r['id'] as int, r['sura'] as int, r['aya'] as int, r['page'] as int, r['juz'] as int, r['text'] as String,
+            plain: r['plain'] as String),
     ];
     if (_pageCache.length > 40) _pageCache.clear();
     return _pageCache[n] = list;
