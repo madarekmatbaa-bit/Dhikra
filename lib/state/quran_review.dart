@@ -185,6 +185,13 @@ class QuranReview {
 
   /// حجم خط المصحف في وضع التكبير.
   double get zoomFont => _p.getDouble('q_zoom_font') ?? 30;
+  /// نغمة التنبيه عند الخطأ في متابعة التلاوة.
+  bool get mistakeSound => _p.getBool('q_mistake_sound') ?? true;
+  Future<void> setMistakeSound(bool v) async {
+    await _p.setBool('q_mistake_sound', v);
+    changed();
+  }
+
   bool get followIntroSeen => _p.getBool('q_follow_intro') ?? false;
   Future<void> setFollowIntroSeen() => _p.setBool('q_follow_intro', true);
 

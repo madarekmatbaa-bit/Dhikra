@@ -30,6 +30,7 @@ dependencies:
   url_launcher: ^6.3.3
   speech_to_text: ^7.5.0
   wakelock_plus: ^1.8.2
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
@@ -42,6 +43,7 @@ flutter:
     - assets/data/bukhari.db
     - assets/data/adhkar.json
     - assets/data/quran.db
+    - assets/sounds/mistake.wav
   fonts:
     - family: Readex
       fonts:

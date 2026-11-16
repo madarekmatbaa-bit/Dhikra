@@ -1,10 +1,19 @@
 import 'arabic.dart';
 
 /// مقطع يُتلى: آية (مفتاحها رقمها العام) أو بسملة قبل السورة (مفتاحها سالب).
+///
+/// [words] كلمات النص الإملائي المطبّعة، و[display] لكل كلمة منها رقمُ الكلمة
+/// التي تقابلها في الرسم العثماني المعروض (قد تقابل كلمتان إملائيتان كلمة واحدة،
+/// مثل «أَوَلَا» = «او لا»).
 class RecitedSegment {
   final int key;
   final List<String> words;
-  RecitedSegment(this.key, String plain) : words = recitationWords(plain);
+  final List<int> display;
+  RecitedSegment(this.key, String plain, {String? uthmani})
+    : words = recitationWords(plain),
+      display = uthmani == null
+          ? List.generate(recitationWords(plain).length, (i) => i)
+          : mapToDisplay(uthmani, recitationWords(plain));
 }
 
 /// كلمات النص بعد التطبيع، دون علامات الترقيم والأرقام.
@@ -13,25 +22,73 @@ List<String> recitationWords(String s) {
   return t.isEmpty ? const [] : t.split(' ');
 }
 
+final _uthmaniMarks = RegExp('[ؐ-ًؚ-ٰٟۖ-ۭـ]');
+
+/// كلمة من الرسم العثماني بعد حذف علامات الضبط والوقف، لمقارنة طولها.
+String uthmaniSkeleton(String w) => normalizeArabic(w.replaceAll(_uthmaniMarks, '').replaceAll('ٱ', 'ا'));
+
+/// يقابل كل كلمة إملائية برقم الكلمة العثمانية المعروضة (بعد تقسيم النص بالمسافات).
+/// علامة الحزب «۞» كلمة معروضة لا تُتلى، فتُتخطى.
+List<int> mapToDisplay(String uthmani, List<String> plain) {
+  final disp = uthmani.split(' ');
+  final readable = <int>[
+    for (var i = 0; i < disp.length; i++)
+      if (uthmaniSkeleton(disp[i]).isNotEmpty) i,
+  ];
+  if (readable.length == plain.length) return readable;
+  // تختلف الأعداد في نحو ستين آية («أَوَلَمۡ» = «او لم»، «هَٰٓأَنتُمۡ» = «ها انتم»):
+  // نضم إلى الكلمة العثمانية كلمات إملائية حتى يقارب طولها طولها.
+  final out = <int>[];
+  var p = 0;
+  for (var r = 0; r < readable.length && p < plain.length; r++) {
+    final target = uthmaniSkeleton(disp[readable[r]]).length;
+    final left = readable.length - r - 1;
+    var len = 0;
+    do {
+      len += plain[p].length;
+      out.add(readable[r]);
+      p++;
+    } while (p < plain.length && len < target - 1 && plain.length - p > left);
+  }
+  while (out.length < plain.length) {
+    out.add(readable.isEmpty ? 0 : readable.last);
+  }
+  return out;
+}
+
+/// حال كلمة معروضة أثناء متابعة التلاوة.
+enum WordState { ahead, current, read, mistake }
+
 /// يتابع موضع القارئ في نص الصفحة من كلمات يسمعها التعرّف على الكلام.
 ///
-/// يمضي كلمة كلمة مع النص، ويتسامح مع خطأ حرف أو حرفين في الكلمة،
-/// ويقفز إلى الأمام إن تطابقت كلمتان متتاليتان أو أكثر (إذا تخطى القارئ شيئاً
-/// أو أخطأ التعرّف في كلمة). لا يرجع إلى الوراء من نفسه.
+/// يمضي كلمة كلمة مع النص، ويتسامح مع اختلاف حرف أو حرفين بحسب طول الكلمة.
+/// إن سمع كلمة لا تطابق ثم عاد القارئ إلى النص بعد كلمة إلى ثلاث كلمات،
+/// عُدّت الكلمات المتخطاة أخطاءً (كلمة أُبدلت أو سقطت). وإن تخطى أكثر من ذلك
+/// عُدّ انتقالاً إلى موضع آخر لا خطأً. لا يرجع إلى الوراء من نفسه.
 class RecitationTracker {
   final List<int> _keys = [];
   final List<String> _words = [];
   final List<int> _wordSeg = [];
+  final List<int> _wordDisp = [];
 
   /// موضع الكلمة التالية المنتظرة.
   int pos = 0;
 
+  /// الكلمات التي عُدّت أخطاءً (مواضعها في النص كله).
+  final Set<int> mistakes = {};
+
+  /// هل طابقت كلمة في العبارة الحالية؟ أول قفزة في العبارة لا تُعدّ خطأً،
+  /// لأن خدمة التعرّف تُسقط أحياناً كلمات عند إعادة تشغيلها بين العبارات.
+  bool _matchedInPhrase = false;
+
   RecitationTracker(List<RecitedSegment> segments) {
     for (var i = 0; i < segments.length; i++) {
       _keys.add(segments[i].key);
-      for (final w in segments[i].words) {
-        _words.add(w);
+      final s = segments[i];
+      for (var k = 0; k < s.words.length; k++) {
+        _words.add(s.words[k]);
         _wordSeg.add(i);
+        _wordDisp.add(k < s.display.length ? s.display[k] : k);
       }
     }
   }
@@ -45,28 +102,68 @@ class RecitationTracker {
     return _keys[_wordSeg[pos.clamp(0, _words.length - 1)]];
   }
 
+  /// رقم الكلمة المعروضة المنتظرة الآن في مقطعها.
+  int? get currentWord => finished || _words.isEmpty ? null : _wordDisp[pos];
+
+  /// حال كل كلمة معروضة في الصفحة: مفتاحها «مفتاح المقطع:رقم الكلمة».
+  Map<String, WordState> get wordStates {
+    final parts = <String, List<WordState>>{};
+    for (var i = 0; i < _words.length; i++) {
+      final WordState s = mistakes.contains(i)
+          ? WordState.mistake
+          : i < pos
+          ? WordState.read
+          : i == pos
+          ? WordState.current
+          : WordState.ahead;
+      parts.putIfAbsent('${_keys[_wordSeg[i]]}:${_wordDisp[i]}', () => []).add(s);
+    }
+    // كلمة معروضة قد تقابل كلمتين إملائيتين: الخطأ يغلب، ولا تُعدّ مقروءة حتى تُقرأ كلها.
+    return parts.map((k, l) {
+      if (l.contains(WordState.mistake)) return MapEntry(k, WordState.mistake);
+      if (l.every((s) => s == WordState.read)) return MapEntry(k, WordState.read);
+      if (l.every((s) => s == WordState.ahead)) return MapEntry(k, WordState.ahead);
+      return MapEntry(k, WordState.current);
+    });
+  }
+
   /// يبدأ المتابعة من أول مقطع مفتاحه [key].
   void startAt(int key) {
     final seg = _keys.indexOf(key);
     if (seg < 0) return;
     final i = _wordSeg.indexOf(seg);
-    if (i >= 0) pos = i;
+    if (i >= 0) {
+      pos = i;
+      _matchedInPhrase = false;
+    }
   }
 
-  /// يمرّر كلمات العبارة الحالية بدءاً من [from]، ويعيد عدد الكلمات المستهلكة منها.
-  /// الكلمة الأخيرة لا تُستهلك إن لم تطابق، لأن التعرّف قد يصححها في النتيجة التالية.
-  int feed(List<String> heard, int from) {
+  /// يمرّر كلمات العبارة الحالية بدءاً من [from]، ويعيد عدد الكلمات المستهلكة منها،
+  /// ومعه عدد الأخطاء الجديدة. الكلمة الأخيرة لا تُستهلك إن لم تطابق، لأن التعرّف
+  /// قد يصححها في النتيجة التالية.
+  (int, int) feed(List<String> heard, int from, {bool markMistakes = true}) {
+    if (from == 0) _matchedInPhrase = false;
     var i = from;
+    var newMistakes = 0;
     while (i < heard.length && !finished) {
       if (similarWord(heard[i], _words[pos])) {
         pos++;
         i++;
+        _matchedInPhrase = true;
         continue;
       }
       final jump = _findAhead(heard, i);
       if (jump != null) {
+        final skipped = jump.$1 - jump.$2 - pos;
+        if (markMistakes && _matchedInPhrase && skipped <= 3) {
+          for (var k = pos; k < pos + skipped; k++) {
+            // الأدوات القصيرة («من»، «لا») كثيراً ما يُسقطها التعرّف، فلا نعدّها خطأً.
+            if (_words[k].length >= 3 && mistakes.add(k)) newMistakes++;
+          }
+        }
         pos = jump.$1;
         i += jump.$2;
+        _matchedInPhrase = true;
         continue;
       }
       if (i + 1 < heard.length) {
@@ -75,7 +172,60 @@ class RecitationTracker {
         break;
       }
     }
-    return i;
+    return (i, newMistakes);
+  }
+
+  // ---------- العبارة: نتابع بالنتائج الجزئية، ونحكم على الأخطاء بالنهائية ----------
+
+  int _phrasePos = 0;
+  Set<int> _phraseMistakes = {};
+
+  /// يحفظ الموضع عند بدء عبارة جديدة، ليُعاد تمريرها كاملة حين تصل نتيجتها النهائية.
+  void beginPhrase() {
+    _phrasePos = pos;
+    _phraseMistakes = {...mistakes};
+  }
+
+  /// يعيد العبارة من أولها بنتيجتها النهائية (وهي أدق من الجزئية)، ويعدّ أخطاءها.
+  (int, int) replayFinal(List<List<String>> alternatives) {
+    final before = mistakes.length;
+    pos = _phrasePos;
+    mistakes
+      ..clear()
+      ..addAll(_phraseMistakes);
+    final r = feed(best(alternatives, 0), 0);
+    return (r.$1, (mistakes.length - before).clamp(0, 1 << 20));
+  }
+
+  /// كم كلمة من المسموع (بدءاً من [from]) تطابق كلمات قريبة أمام الموضع.
+  /// به نختار أرجح البدائل التي تقترحها خدمة التعرّف.
+  int score(List<String> heard, int from) {
+    final end = (pos + 40).clamp(0, _words.length);
+    final start = (pos - 3).clamp(0, _words.length);
+    var n = 0;
+    for (var i = from; i < heard.length; i++) {
+      for (var j = start; j < end; j++) {
+        if (similarWord(heard[i], _words[j])) {
+          n++;
+          break;
+        }
+      }
+    }
+    return n;
+  }
+
+  /// يختار من البدائل أكثرها مطابقة للنص.
+  List<String> best(List<List<String>> alternatives, int from) {
+    var b = alternatives.first;
+    var bs = score(b, from);
+    for (final a in alternatives.skip(1)) {
+      final sc = score(a, from);
+      if (sc > bs) {
+        b = a;
+        bs = sc;
+      }
+    }
+    return b;
   }
 
   /// يبحث أمام الموضع عن تطابق كلمات متتالية تبدأ بالكلمة [i] من المسموع.
@@ -85,7 +235,7 @@ class RecitationTracker {
     for (var j = pos + 1; j < end; j++) {
       if (!similarWord(heard[i], _words[j])) continue;
       // كلما بعدت القفزة احتجنا إلى تطابق أطول حتى لا نقفز خطأً.
-      final need = j - pos <= 12 ? 2 : 3;
+      final need = j - pos <= 3 ? 2 : 3;
       if (i + need > heard.length) return null; // ننتظر كلمات أكثر
       var ok = true;
       for (var k = 1; k < need; k++) {
@@ -100,12 +250,14 @@ class RecitationTracker {
   }
 }
 
-/// تطابق كلمتين مع تسامح يسير: الواو والفاء في أولها، وفرق حرف أو حرفين بحسب الطول.
+/// تطابق كلمتين مع تسامح يسير: الواو والفاء في أولها، والألف داخل الكلمة
+/// (يكتبها الرسم ولا يكتبها الإملاء أو العكس)، وفرق حرف أو حرفين بحسب الطول.
 bool similarWord(String a, String b) {
   if (a == b) return true;
   String strip(String s) => s.length > 3 && (s.startsWith('و') || s.startsWith('ف')) ? s.substring(1) : s;
   final x = strip(a), y = strip(b);
   if (x == y) return true;
+  if (x.length > 3 && y.length > 3 && x.replaceAll('ا', '') == y.replaceAll('ا', '')) return true;
   final len = x.length < y.length ? y.length : x.length;
   if (len < 3) return false;
   final allowed = len >= 7 ? 2 : 1;

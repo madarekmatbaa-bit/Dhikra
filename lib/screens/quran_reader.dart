@@ -58,6 +58,14 @@ class _QuranReaderState extends State<QuranReader> {
   int? _currentKey;
   int _consumed = 0;
   double _level = 0;
+  final _alert = MistakeAlert();
+  final _pageStates = <int, Map<String, WordState>>{};
+  RecitationTracker? _phraseTracker;
+  int _phrasePage = 0;
+  int _mistakeCount = 0;
+
+  /// اختبار الحفظ: يُخفى النص وتظهر كل كلمة حين يقرؤها القارئ.
+  bool hideText = false;
 
   @override
   void initState() {
@@ -79,6 +87,7 @@ class _QuranReaderState extends State<QuranReader> {
   @override
   void dispose() {
     _listener.stop();
+    _alert.dispose();
     if (fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _pc.dispose();
     super.dispose();
@@ -179,6 +188,7 @@ class _QuranReaderState extends State<QuranReader> {
       await _listener.stop();
       setState(() {
         following = false;
+        hideText = false;
         _currentKey = null;
       });
       return;
@@ -190,8 +200,10 @@ class _QuranReaderState extends State<QuranReader> {
         builder: (c) => AlertDialog(
           title: const Text('متابعة التلاوة'),
           content: const Text(
-            'اقرأ بصوت واضح، أو شغّل تلاوة قارئ قرب الهاتف، فيتبعك التطبيق آيةً آية: '
-            'يلوّن الآية التي وصلت إليها، ويمرّر الصفحة ويقلبها معك.\n\n'
+            'اقرأ بصوت واضح، أو شغّل تلاوة قارئ قرب الهاتف، فيتبعك التطبيق كلمةً كلمة: '
+            'يلوّن الكلمة التي وصلت إليها، ويمرّر الصفحة ويقلبها معك. '
+            'وإن أبدلت كلمة أو أسقطتها ظهرت بالأحمر مع نغمة تنبيه.\n\n'
+            'ولمراجعة الحفظ اضغط زر العين فيُخفى النص، وتظهر كل كلمة حين تقرؤها.\n\n'
             'يبدأ من أول الصفحة، وإن بدأت من موضع آخر فاضغط على الآية التي تقرؤها.\n\n'
             'تعتمد المتابعة على خدمة التعرّف على الكلام في هاتفك (من Google عادة)، وقد ترسل الصوت إليها لتحويله إلى كلمات. '
             'ولا يُحفظ الصوت في التطبيق. الميزة تجريبية، وقد تتأخر أو تخطئ أحياناً.',
@@ -220,8 +232,10 @@ class _QuranReaderState extends State<QuranReader> {
     final ayat = await db.page(p);
     final segs = <RecitedSegment>[];
     for (final a in ayat) {
-      if (a.aya == 1 && a.sura != 1 && a.sura != 9) segs.add(RecitedSegment(-a.sura, db.basmalaPlain));
-      segs.add(RecitedSegment(a.id, a.plain));
+      if (a.aya == 1 && a.sura != 1 && a.sura != 9) {
+        segs.add(RecitedSegment(-a.sura, db.basmalaPlain, uthmani: db.basmala));
+      }
+      segs.add(RecitedSegment(a.id, a.plain, uthmani: QuranDb.stripNumber(a.text)));
     }
     final t = RecitationTracker(segs);
     if (startKey != null) t.startAt(startKey);
@@ -229,28 +243,74 @@ class _QuranReaderState extends State<QuranReader> {
     setState(() {
       _tracker = t;
       _currentKey = t.currentKey;
+      _pageStates[p] = t.wordStates;
     });
   }
 
-  void _onWords(List<String> words, bool newPhrase) {
+  void _onWords(List<List<String>> alternatives, bool newPhrase, bool isFinal) {
+    if (!mounted) return;
     final t = _tracker;
-    if (newPhrase) _consumed = 0;
-    if (t == null || !mounted) return;
-    _consumed = t.feed(words, _consumed);
+    if (newPhrase) {
+      _consumed = 0;
+      t?.beginPhrase();
+      _phraseTracker = t;
+      _phrasePage = page;
+    }
+    var fresh = 0;
+    if (isFinal && _phraseTracker != null) {
+      // النتيجة النهائية أدق: نعيد العبارة كلها بها، ومنها وحدها نحكم على الأخطاء.
+      final pt = _phraseTracker!;
+      final r = pt.replayFinal(alternatives);
+      fresh = r.$2;
+      _pageStates[_phrasePage] = pt.wordStates;
+      _phraseTracker = null;
+      if (!identical(pt, t)) {
+        _report(fresh);
+        setState(() {});
+        return;
+      }
+      _consumed = r.$1;
+    } else if (t != null) {
+      _consumed = t.feed(t.best(alternatives, _consumed), _consumed, markMistakes: false).$1;
+    } else {
+      return;
+    }
+    _report(fresh);
+    _pageStates[page] = t!.wordStates;
     if (t.finished && page < quranPages) {
       // انتهت الصفحة: نقلبها ونكمل بما بقي من العبارة نفسها.
       _tracker = null;
       _pc.nextPage(duration: const Duration(milliseconds: 450), curve: Curves.easeInOut);
+      setState(() {});
       return;
     }
-    if (t.currentKey != _currentKey) setState(() => _currentKey = t.currentKey);
+    setState(() => _currentKey = t.currentKey);
+  }
+
+  void _report(int fresh) {
+    if (fresh <= 0) return;
+    _mistakeCount += fresh;
+    _alert.play(sound: _q.mistakeSound);
   }
 
   void _followFrom(Aya a) {
     final t = _tracker;
     if (t == null) return;
     t.startAt(a.id);
-    setState(() => _currentKey = t.currentKey);
+    setState(() {
+      _currentKey = t.currentKey;
+      _pageStates[page] = t.wordStates;
+    });
+  }
+
+  Future<void> _toggleHide() async {
+    if (hideText) {
+      setState(() => hideText = false);
+      return;
+    }
+    if (!following) await _toggleFollow();
+    if (!mounted || !following) return;
+    setState(() => hideText = true);
   }
 
   @override
@@ -286,11 +346,31 @@ class _QuranReaderState extends State<QuranReader> {
                     ? 'أستمع إلى التلاوة…'
                     : _currentKey! < 0
                     ? 'البسملة · سورة ${db.suras[-_currentKey! - 1].name}'
+                    : hideText
+                    ? 'اختبار الحفظ · صفحة $page'
                     : 'أتابعك في الصفحة $page',
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
               ),
             ),
-            TextButton.icon(onPressed: _toggleFollow, icon: const Icon(Icons.stop), label: const Text('إيقاف')),
+            if (_mistakeCount > 0)
+              Container(
+                margin: const EdgeInsetsDirectional.only(end: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(
+                  color: mistakeColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'أخطاء $_mistakeCount',
+                  style: const TextStyle(fontSize: 13, color: mistakeColor, fontWeight: FontWeight.w500),
+                ),
+              ),
+            IconButton(
+              tooltip: hideText ? 'أظهر النص' : 'أخفِ النص لاختبار الحفظ',
+              icon: Icon(hideText ? Icons.visibility_off : Icons.visibility_outlined),
+              onPressed: _toggleHide,
+            ),
+            IconButton(tooltip: 'إيقاف', icon: const Icon(Icons.stop_circle_outlined), onPressed: _toggleFollow),
           ],
         ),
       ),
@@ -354,6 +434,10 @@ class _QuranReaderState extends State<QuranReader> {
                         _zoomBy(-2);
                       case 'full':
                         _setFullscreen(true);
+                      case 'hide':
+                        _toggleHide();
+                      case 'sound':
+                        s.quran.setMistakeSound(!s.quran.mistakeSound);
                     }
                   },
                   itemBuilder: (_) => [
@@ -362,6 +446,12 @@ class _QuranReaderState extends State<QuranReader> {
                     const PopupMenuItem(value: 'out', child: Text('صغّر الخط')),
                     if (!s.quran.fitPage) const PopupMenuItem(value: 'fit', child: Text('الصفحة على قد الشاشة')),
                     const PopupMenuItem(value: 'full', child: Text('ملء الشاشة')),
+                    PopupMenuItem(value: 'hide', child: Text(hideText ? 'أظهر النص' : 'اختبر حفظك (أخفِ النص)')),
+                    CheckedPopupMenuItem(
+                      value: 'sound',
+                      checked: s.quran.mistakeSound,
+                      child: const Text('نغمة عند الخطأ'),
+                    ),
                   ],
                 ),
               ],
@@ -405,7 +495,9 @@ class _QuranReaderState extends State<QuranReader> {
             zoomFont: zoomFont,
             highlightSura: widget.highlightSura,
             highlightAya: widget.highlightAya,
-            currentKey: i + 1 == page ? _currentKey : null,
+            currentKey: following && i + 1 == page ? _currentKey : null,
+            wordStates: _pageStates[i + 1],
+            hideText: hideText,
             onAyaTap: following ? _followFrom : null,
             onHeaderTap: fullscreen ? () => _setFullscreen(false) : null,
             onFitFont: (f) => _lastFitFont = f,
@@ -429,6 +521,9 @@ class _Block {
 }
 
 /// صفحة من المصحف.
+/// لون الكلمة الخاطئة في متابعة التلاوة.
+const mistakeColor = Color(0xFFB3261E);
+
 class QuranPageView extends StatefulWidget {
   final int page;
   final bool fit;
@@ -438,6 +533,10 @@ class QuranPageView extends StatefulWidget {
 
   /// الآية التي يقرؤها القارئ الآن (رقمها العام)، أو سالب رقم السورة للبسملة.
   final int? currentKey;
+
+  /// حال كل كلمة أثناء متابعة التلاوة («مفتاح المقطع:رقم الكلمة»).
+  final Map<String, WordState>? wordStates;
+  final bool hideText;
   final ValueChanged<Aya>? onAyaTap;
   final VoidCallback? onHeaderTap;
   final ValueChanged<double>? onFitFont;
@@ -449,6 +548,8 @@ class QuranPageView extends StatefulWidget {
     this.highlightSura,
     this.highlightAya,
     this.currentKey,
+    this.wordStates,
+    this.hideText = false,
     this.onAyaTap,
     this.onHeaderTap,
     this.onFitFont,
@@ -538,6 +639,30 @@ class _QuranPageViewState extends State<QuranPageView> {
     if (top > h * 0.08 && top < h * 0.5) return;
     final target = (_scroll.offset + top - h * 0.2).clamp(0.0, _scroll.position.maxScrollExtent);
     _scroll.animateTo(target, duration: const Duration(milliseconds: 500), curve: Curves.easeInOut);
+  }
+
+  /// شكل الكلمة بحسب حالها في التلاوة: الخطأ أحمر، والجارية مظللة، وفي اختبار
+  /// الحفظ تُخفى الكلمة حتى تُقرأ ويبقى تحتها خط يدل على مكانها.
+  TextStyle? _wordStyle(WordState? st, Palette pal) {
+    if (st == WordState.mistake) {
+      return TextStyle(color: mistakeColor, backgroundColor: mistakeColor.withValues(alpha: 0.10));
+    }
+    final hidden = widget.hideText && st != WordState.read;
+    if (hidden) {
+      return TextStyle(
+        color: Colors.transparent,
+        backgroundColor: st == WordState.current && widget.currentKey != null
+            ? AppColors.wheat.withValues(alpha: 0.35)
+            : null,
+        decoration: TextDecoration.underline,
+        decorationColor: pal.line,
+        decorationThickness: 1.4,
+      );
+    }
+    if (st == WordState.current && widget.currentKey != null) {
+      return TextStyle(backgroundColor: AppColors.wheat.withValues(alpha: 0.55));
+    }
+    return null;
   }
 
   List<_Block> _blocks(List<Aya> ayat, QuranDb db) {
@@ -660,19 +785,23 @@ class _QuranPageViewState extends State<QuranPageView> {
                 continue;
               }
               if (b.basmala) {
-                final cur = widget.currentKey == -b.sura!.id;
+                final key = -b.sura!.id;
+                final words = db.basmala.split(' ');
                 children.add(
-                  Text(
-                    db.basmala,
+                  Text.rich(
+                    TextSpan(
+                      style: TextStyle(backgroundColor: widget.currentKey == key ? pal.highlight : null),
+                      children: [
+                        for (var k = 0; k < words.length; k++)
+                          TextSpan(
+                            text: k < words.length - 1 ? '${words[k]} ' : words[k],
+                            style: _wordStyle(widget.wordStates?['$key:$k'], pal),
+                          ),
+                      ],
+                    ),
                     key: _blockKeys[bi],
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: quranFont,
-                      fontSize: fs * 0.95,
-                      height: line,
-                      color: ink,
-                      backgroundColor: cur ? pal.highlight : null,
-                    ),
+                    style: TextStyle(fontFamily: quranFont, fontSize: fs * 0.95, height: line, color: ink),
                   ),
                 );
                 continue;
@@ -687,7 +816,7 @@ class _QuranPageViewState extends State<QuranPageView> {
                 final marked = a.sura == widget.highlightSura && a.aya == widget.highlightAya;
                 Color? bg;
                 if (a.id == widget.currentKey) {
-                  bg = AppColors.wheat.withValues(alpha: 0.45);
+                  bg = AppColors.wheat.withValues(alpha: 0.18);
                 } else if (marked) {
                   bg = pal.highlight;
                 } else if (notes.any((n) => n.kind == 'mistake')) {
@@ -695,11 +824,21 @@ class _QuranPageViewState extends State<QuranPageView> {
                 } else if (notes.isNotEmpty) {
                   bg = const Color(0x226E8B6A);
                 }
+                final rec = _tap(a);
+                final body = QuranDb.stripNumber(a.text);
+                final words = body.split(' ');
                 spans.add(
                   TextSpan(
-                    text: text,
-                    recognizer: _tap(a),
                     style: TextStyle(backgroundColor: bg),
+                    children: [
+                      for (var k = 0; k < words.length; k++)
+                        TextSpan(
+                          text: k < words.length - 1 ? '${words[k]} ' : words[k],
+                          recognizer: rec,
+                          style: _wordStyle(widget.wordStates?['${a.id}:$k'], pal),
+                        ),
+                      TextSpan(text: '${a.text.substring(body.length)} ', recognizer: rec),
+                    ],
                   ),
                 );
               }

@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/services.dart';
+
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -13,8 +16,8 @@ class RecitationListener {
   bool _ready = false;
   Timer? _restart;
 
-  /// كلمات العبارة الحالية كاملة، وهل هذه عبارة جديدة.
-  void Function(List<String> words, bool newPhrase)? onWords;
+  /// بدائل العبارة الحالية كاملة (أرجحها أولاً)، وهل هي عبارة جديدة، وهل النتيجة نهائية.
+  void Function(List<List<String>> alternatives, bool newPhrase, bool isFinal)? onWords;
   void Function(String message)? onFatal;
   void Function(double level)? onLevel;
 
@@ -50,10 +53,14 @@ class RecitationListener {
     try {
       await _stt.listen(
         onResult: (r) {
-          final w = recitationWords(r.recognizedWords);
-          if (w.isEmpty) return;
-          onWords?.call(w, _newPhrase);
+          final alts = [
+            for (final a in r.alternates)
+              if (recitationWords(a.recognizedWords).isNotEmpty) recitationWords(a.recognizedWords),
+          ];
+          if (alts.isEmpty) return;
+          onWords?.call(alts, _newPhrase, r.finalResult);
           _newPhrase = false;
+          if (r.finalResult) _newPhrase = true;
         },
         onSoundLevelChange: (l) => onLevel?.call(l),
         listenOptions: SpeechListenOptions(
@@ -102,4 +109,40 @@ class RecitationListener {
       msg == 'error_busy' || msg == 'error_network' ? const Duration(seconds: 2) : const Duration(milliseconds: 400),
     );
   }
+}
+
+/// نغمة قصيرة واهتزاز عند الخطأ في التلاوة. لا تطلب تركيز الصوت، فلا توقف تلاوة
+/// قارئ يعمل من تطبيق آخر.
+class MistakeAlert {
+  AudioPlayer? _player;
+  DateTime _last = DateTime(2000);
+
+  Future<void> play({bool sound = true}) async {
+    final now = DateTime.now();
+    if (now.difference(_last) < const Duration(milliseconds: 700)) return;
+    _last = now;
+    HapticFeedback.heavyImpact();
+    if (!sound) return;
+    try {
+      var p = _player;
+      if (p == null) {
+        p = _player = AudioPlayer();
+        await p.setPlayerMode(PlayerMode.lowLatency);
+        await p.setAudioContext(
+          AudioContext(
+            android: const AudioContextAndroid(
+              audioFocus: AndroidAudioFocus.none,
+              usageType: AndroidUsageType.assistanceSonification,
+              contentType: AndroidContentType.sonification,
+            ),
+          ),
+        );
+        await p.setReleaseMode(ReleaseMode.stop);
+      }
+      await p.stop();
+      await p.play(AssetSource('sounds/mistake.wav'), volume: 0.8);
+    } catch (_) {}
+  }
+
+  void dispose() => _player?.dispose();
 }
