@@ -45,14 +45,11 @@ class QuranTab extends StatelessWidget {
           SectionCard(
             onTap: () => openMushaf(context, q.lastPage),
             child: Row(children: [
-              CircleAvatar(
-                backgroundColor: pal.soft,
-                child: Icon(Icons.auto_stories_outlined, color: Theme.of(context).colorScheme.primary),
-              ),
+              SizedBox(width: 30, child: Icon(Icons.auto_stories_outlined, color: AppColors.wheat)),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('المصحف', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  const Text('المصحف', style: TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
                   Text('تابع من الصفحة ${q.lastPage} · سورة ${s.quranDb.suraOfPage(q.lastPage).name}',
                       style: TextStyle(color: pal.muted, fontSize: 13)),
                 ]),
@@ -124,7 +121,7 @@ class _Intro extends StatelessWidget {
         );
     return SectionCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('ورد الحفظ والمراجعة', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        const Text('ورد الحفظ والمراجعة', style: TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.45)),
         const SizedBox(height: 6),
         Text('كل يوم ثلاثة أجزاء صغيرة، يحسبها التطبيق لك:', style: TextStyle(color: pal.muted, fontSize: 14)),
         const SizedBox(height: 12),
@@ -193,7 +190,7 @@ class QuranTodayCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 16, 12, 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          const Expanded(child: Text('ورد القرآن اليوم', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
+          const Expanded(child: Text('ورد القرآن اليوم', style: TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.45))),
           Text('${t.partsDone} / ${t.partsTotal}', style: TextStyle(color: pal.muted, fontSize: 15)),
           const SizedBox(width: 6),
           if (t.complete) const Icon(Icons.check_circle, color: AppColors.sage),
@@ -234,7 +231,7 @@ class _Tile extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Icon(icon, color: AppColors.wheat),
         const SizedBox(height: 10),
-        Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+        Text(value, style: const TextStyle(fontFamily: readingFont, fontSize: 19, fontWeight: FontWeight.w700, height: 1.45)),
         Text(label, style: TextStyle(color: pal.muted, fontSize: 13)),
         if (sub != null) Text(sub!, style: TextStyle(color: pal.muted, fontSize: 12)),
       ]),

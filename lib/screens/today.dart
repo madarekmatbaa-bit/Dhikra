@@ -29,14 +29,11 @@ class TodayScreen extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
         children: [
           Row(children: [
-            const BrandMark(size: 42),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('ذِكرى', style: Theme.of(context).textTheme.titleLarge),
-                Text('${gregorianLong(now)} · ${hijriLong(now)}', style: TextStyle(color: pal.muted, fontSize: 13)),
-              ]),
-            ),
+            const BrandMark(size: 30),
+            const SizedBox(width: 10),
+            const Text('ذِكرى',
+                style: TextStyle(fontFamily: readingFont, fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.olive)),
+            const Spacer(),
             IconButton(
               tooltip: 'دفتر الفوائد',
               icon: const Icon(Icons.bookmark_border),
@@ -53,6 +50,12 @@ class TodayScreen extends StatelessWidget {
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
             ),
           ]),
+          const SizedBox(height: 18),
+          // التاريخ كرأس صفحة: الهجري بخط النسخ، والميلادي تحته.
+          Text(hijriLong(now), style: const TextStyle(fontFamily: readingFont, fontSize: 27, fontWeight: FontWeight.w700, height: 1.35)),
+          Text(gregorianLong(now), style: TextStyle(color: pal.muted, fontSize: 14)),
+          const SizedBox(height: 14),
+          const Ornament(),
           const SizedBox(height: 20),
           if (s.update != null) ...[
             SectionCard(
@@ -79,7 +82,7 @@ class TodayScreen extends StatelessWidget {
             SectionCard(
               color: pal.highlight,
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('فاتك ورد أمس', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                const Text('فاتك ورد أمس', style: TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
                 const SizedBox(height: 4),
                 const Text('لك يوم عذر واحد في الأسبوع لا ينقطع به خطك.', style: TextStyle(fontSize: 14)),
                 const SizedBox(height: 10),
@@ -94,17 +97,7 @@ class TodayScreen extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 12),
-          Row(children: [
-            Expanded(
-              child: _StatTile(
-                icon: Icons.local_fire_department_outlined,
-                value: daysWord(s.currentStreak),
-                label: 'خطك الحالي',
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: _ForecastTile(state: s)),
-          ]),
+          _StatsStrip(state: s),
           for (final b in s.library.books.where((b) => !b.finished)) ...[
             const SizedBox(height: 12),
             BookCard(book: b, compact: true),
@@ -169,7 +162,7 @@ class _WirdCard extends StatelessWidget {
       padding: const EdgeInsets.all(20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          const Expanded(child: Text('ورد البخاري اليوم', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
+          const Expanded(child: Text('ورد البخاري اليوم', style: TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.45))),
           if (log?.excused == true && !done)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -227,44 +220,37 @@ class _WirdCard extends StatelessWidget {
   }
 }
 
-class _StatTile extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-  final String? sub;
-  const _StatTile({required this.icon, required this.value, required this.label, this.sub});
+/// الخط والختم المتوقع في بطاقة واحدة يفصل بينهما خط رفيع.
+class _StatsStrip extends StatelessWidget {
+  final AppState state;
+  const _StatsStrip({required this.state});
 
   @override
   Widget build(BuildContext context) {
     final pal = Palette.of(context);
-    return SectionCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(icon, color: AppColors.wheat),
-        const SizedBox(height: 10),
-        Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-        Text(label, style: TextStyle(color: pal.muted, fontSize: 13)),
-        if (sub != null) Text(sub!, style: TextStyle(color: pal.muted, fontSize: 12)),
-      ]),
-    );
-  }
-}
-
-class _ForecastTile extends StatelessWidget {
-  final AppState state;
-  const _ForecastTile({required this.state});
-
-  @override
-  Widget build(BuildContext context) {
     final f = state.forecast;
-    if (f == null) {
-      return const _StatTile(icon: Icons.flag_outlined, value: 'تم الختم', label: 'الختم');
-    }
-    return _StatTile(
-      icon: Icons.flag_outlined,
-      value: gregorianFull(f.date),
-      label: 'الختم المتوقع',
-      sub: 'بعد ${daysWord(f.days)}${f.fromActualRate ? ' بمعدلك الفعلي' : ''}',
+    Widget cell(String value, String label, String? sub) => Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label, style: TextStyle(color: pal.muted, fontSize: 13)),
+              const SizedBox(height: 2),
+              Text(value, style: const TextStyle(fontFamily: readingFont, fontSize: 20, fontWeight: FontWeight.w700, height: 1.4)),
+              if (sub != null) Text(sub, style: TextStyle(color: pal.muted, fontSize: 12)),
+            ]),
+          ),
+        );
+    return SectionCard(
+      padding: EdgeInsets.zero,
+      child: IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          cell(daysWord(state.currentStreak), 'خطك الحالي', null),
+          VerticalDivider(width: 1, color: pal.line),
+          f == null
+              ? cell('تم الختم', 'الختم', null)
+              : cell(gregorianFull(f.date), 'الختم المتوقع', 'بعد ${daysWord(f.days)}${f.fromActualRate ? ' بمعدلك الفعلي' : ''}'),
+        ]),
+      ),
     );
   }
 }
@@ -300,7 +286,7 @@ class _BenefitOfDay extends StatelessWidget {
           const Spacer(),
           TextButton(onPressed: () => openBenefitsPage(context), child: const Text('كل الفوائد')),
         ]),
-        if (b.title.isNotEmpty) Text(b.title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        if (b.title.isNotEmpty) Text(b.title, style: const TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.45)),
         const SizedBox(height: 4),
         Text(b.body, maxLines: 4, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
         const SizedBox(height: 8),
@@ -317,29 +303,34 @@ class _AdhkarRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     final pal = Palette.of(context);
-    Widget chip(AdhkarSet set, String label) {
+    Widget cell(AdhkarSet set, String label) {
       final done = s.adhkarDone(set);
       return Expanded(
-        child: SectionCard(
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-          color: done ? pal.soft : null,
+        child: InkWell(
           onTap: () => openAdhkar(context, set),
-          child: Column(children: [
-            Icon(done ? Icons.check_circle : Icons.radio_button_unchecked,
-                color: done ? AppColors.sage : pal.muted, size: 22),
-            const SizedBox(height: 6),
-            Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-          ]),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
+            child: Column(children: [
+              Icon(done ? Icons.check_circle : Icons.circle_outlined, color: done ? AppColors.sage : pal.line, size: 20),
+              const SizedBox(height: 6),
+              Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: done ? pal.muted : null)),
+            ]),
+          ),
         ),
       );
     }
 
-    return Row(children: [
-      chip(AdhkarSet.morning, 'أذكار الصباح'),
-      const SizedBox(width: 8),
-      chip(AdhkarSet.evening, 'أذكار المساء'),
-      const SizedBox(width: 8),
-      chip(AdhkarSet.sleep, 'أذكار النوم'),
-    ]);
+    return SectionCard(
+      padding: EdgeInsets.zero,
+      child: IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          cell(AdhkarSet.morning, 'أذكار الصباح'),
+          VerticalDivider(width: 1, color: pal.line),
+          cell(AdhkarSet.evening, 'أذكار المساء'),
+          VerticalDivider(width: 1, color: pal.line),
+          cell(AdhkarSet.sleep, 'أذكار النوم'),
+        ]),
+      ),
+    );
   }
 }

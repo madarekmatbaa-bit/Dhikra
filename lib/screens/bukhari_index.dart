@@ -91,32 +91,19 @@ class _BukhariIndexScreenState extends State<BukhariIndexScreen> {
         Expanded(
           child: hits != null || searching
               ? _results(pal, s)
-              : ListView.separated(
+              : ListView(
                   padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
-                  itemCount: s.bukhari.books.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
-                  itemBuilder: (context, i) {
-                    final b = s.bukhari.books[i];
-                    final here = b.id == currentBook.id;
-                    return Card(
-                      color: here ? pal.soft : null,
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-                        leading: CircleAvatar(
-                          radius: 17,
-                          backgroundColor: here ? AppColors.wheat : pal.soft,
-                          child: Text('${b.id}',
-                              style: TextStyle(fontSize: 13, color: here ? AppColors.ink : null)),
-                        ),
-                        title: Text('كتاب ${b.title}', style: const TextStyle(fontWeight: FontWeight.w500)),
-                        subtitle: Text(
-                          '${b.first} – ${b.last} · ${hadithWord(b.count)}${here ? ' · وردك هنا' : ''}',
-                          style: TextStyle(color: pal.muted, fontSize: 13),
-                        ),
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookScreen(book: b))),
-                      ),
-                    );
-                  },
+                  children: [
+                    // فهرس الكتب كفهرس كتاب مطبوع: سطور يفصلها خط رفيع، والرقم بخط النسخ.
+                    Card(
+                      child: Column(children: [
+                        for (final b in s.bukhari.books) ...[
+                          if (b.id != s.bukhari.books.first.id) Divider(height: 1, indent: 16, endIndent: 16, color: pal.line),
+                          _BookRow(book: b, here: b.id == currentBook.id),
+                        ],
+                      ]),
+                    ),
+                  ],
                 ),
         ),
       ]),
@@ -148,6 +135,44 @@ class _BukhariIndexScreenState extends State<BukhariIndexScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _BookRow extends StatelessWidget {
+  final BukhariBook book;
+  final bool here;
+  const _BookRow({required this.book, required this.here});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Palette.of(context);
+    final b = book;
+    return InkWell(
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookScreen(book: b))),
+      child: Container(
+        decoration: here
+            ? BoxDecoration(
+                color: pal.highlight.withValues(alpha: 0.6),
+                border: const BorderDirectional(start: BorderSide(color: AppColors.wheat, width: 3)),
+              )
+            : null,
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Row(children: [
+          SizedBox(
+            width: 34,
+            child: Text('${b.id}',
+                style: TextStyle(fontFamily: readingFont, fontSize: 17, color: here ? AppColors.olive : pal.muted)),
+          ),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('كتاب ${b.title}', style: const TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.4)),
+              Text('${b.first} – ${b.last} · ${hadithWord(b.count)}', style: TextStyle(color: pal.muted, fontSize: 13)),
+            ]),
+          ),
+          if (here) const Icon(Icons.bookmark, color: AppColors.wheat, size: 20),
+        ]),
+      ),
     );
   }
 }

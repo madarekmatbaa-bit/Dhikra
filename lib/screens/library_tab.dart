@@ -290,7 +290,7 @@ class _BookDialogState extends State<_BookDialog> {
                     onPressed: perDay > 1 ? () => setState(() => perDay--) : null,
                     icon: const Icon(Icons.remove),
                   ),
-                  Text('$perDay', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  Text('$perDay', style: const TextStyle(fontFamily: readingFont, fontSize: 19, fontWeight: FontWeight.w700, height: 1.45)),
                   IconButton(onPressed: () => setState(() => perDay++), icon: const Icon(Icons.add)),
                 ],
               ),
@@ -370,7 +370,7 @@ class BookCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   compact ? 'ورد «${b.title}»' : b.title,
-                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                  style: const TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.45),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -567,7 +567,7 @@ Future<void> pickShelfFor(BuildContext context, Book b) async {
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
-            child: Text('رف «${b.title}»', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            child: Text('رف «${b.title}»', style: const TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.45)),
           ),
           for (final sh in lib.shelves)
             ListTile(

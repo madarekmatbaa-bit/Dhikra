@@ -39,7 +39,7 @@ class SettingsScreen extends StatelessWidget {
                   icon: const Icon(Icons.remove),
                   onPressed: plan.perDay > 1 ? () => s.setPerDay(plan.perDay - 1) : null,
                 ),
-                Text('${plan.perDay}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                Text('${plan.perDay}', style: const TextStyle(fontFamily: readingFont, fontSize: 19, fontWeight: FontWeight.w700, height: 1.45)),
                 IconButton(
                   icon: const Icon(Icons.add),
                   onPressed: plan.perDay < 200 ? () => s.setPerDay(plan.perDay + 1) : null,
@@ -147,7 +147,7 @@ class SettingsScreen extends StatelessWidget {
           _Group(children: [
             ListTile(
               leading: const BrandMark(size: 34),
-              title: Text('ذِكرى · الإصدار 0.5${appBuild > 0 ? ' · نسخة $appBuild' : ''}'),
+              title: Text('ذِكرى · الإصدار 0.6${appBuild > 0 ? ' · نسخة $appBuild' : ''}'),
               subtitle: const Text(
                   'نص القرآن وخطه من مجمع الملك فهد لطباعة المصحف الشريف. '
                   'نص صحيح البخاري من مجموعة بيانات مفتوحة (hadith-api) مأخوذة عن موقع sunnah.com، بترقيم فتح الباري. '

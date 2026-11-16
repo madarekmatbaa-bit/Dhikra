@@ -54,7 +54,7 @@ Future<void> openAdhkar(BuildContext context, AdhkarSet set) async {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Padding(
             padding: EdgeInsets.all(16),
-            child: Text('بعد أي صلاة؟', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            child: Text('بعد أي صلاة؟', style: TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.45)),
           ),
           for (final p in fivePrayers)
             ListTile(title: Text('صلاة ${salahNames[p]}'), onTap: () => Navigator.pop(c, p)),
@@ -90,14 +90,11 @@ class _SetTile extends StatelessWidget {
       color: done ? pal.soft : null,
       onTap: () => openAdhkar(context, set),
       child: Row(children: [
-        CircleAvatar(
-          backgroundColor: done ? AppColors.sage : pal.soft,
-          child: Icon(_icons[set], color: done ? Colors.white : Theme.of(context).colorScheme.primary),
-        ),
+        SizedBox(width: 30, child: Icon(_icons[set], color: done ? AppColors.sage : AppColors.wheat)),
         const SizedBox(width: 14),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(adhkarTitles[set]!, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            Text(adhkarTitles[set]!, style: const TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
             Text(done ? 'أتممتها اليوم' : '$n ذكراً', style: TextStyle(color: pal.muted, fontSize: 13)),
           ]),
         ),
@@ -161,7 +158,7 @@ class _PrayerTimesCardState extends State<PrayerTimesCard> {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('الصلاة القادمة: ${salahNames[nextS]}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  style: const TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
               Text('${clock12(nextT)} · ${untilText(nextT.difference(now))}',
                   style: TextStyle(color: pal.muted, fontSize: 14)),
             ]),

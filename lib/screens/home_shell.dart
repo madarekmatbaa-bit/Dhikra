@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
+import '../theme.dart';
 import 'adhkar_tab.dart';
 import 'bukhari_index.dart';
 import 'library_tab.dart';
@@ -63,7 +64,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           const LibraryTab(),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: DecoratedBox(
+        decoration: BoxDecoration(border: Border(top: BorderSide(color: Palette.of(context).line))),
+        child: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (i) => setState(() => tab = i),
         destinations: const [
@@ -77,6 +80,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           NavigationDestination(
               icon: Icon(Icons.local_library_outlined), selectedIcon: Icon(Icons.local_library), label: 'المكتبة'),
         ],
+        ),
       ),
     );
   }

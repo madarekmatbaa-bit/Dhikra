@@ -7,16 +7,20 @@ class AppColors {
   static const sageLight = Color(0xFFE6ECE1);
   static const wheat = Color(0xFFC7A85A);
   static const wheatLight = Color(0xFFF3EBD3);
-  static const paper = Color(0xFFFAFBF7);
-  static const ink = Color(0xFF1F2A21);
-  static const muted = Color(0xFF5E6B60);
-  static const line = Color(0xFFDDE3D8);
 
-  static const nightBg = Color(0xFF111914);
-  static const nightSurface = Color(0xFF1A241D);
-  static const nightCard = Color(0xFF223026);
-  static const nightInk = Color(0xFFE6ECE4);
-  static const nightMuted = Color(0xFFA3B2A5);
+  /// ورق عاجي دافئ كورق الكتب، لا أبيض شاشة.
+  static const paper = Color(0xFFF7F3EA);
+  static const sheet = Color(0xFFFCFAF5);
+  static const parchment = Color(0xFFEFE8D8);
+  static const ink = Color(0xFF1F241E);
+  static const muted = Color(0xFF6B685C);
+  static const line = Color(0xFFE3DBC9);
+
+  static const nightBg = Color(0xFF151510);
+  static const nightSurface = Color(0xFF1D1C17);
+  static const nightCard = Color(0xFF23221C);
+  static const nightInk = Color(0xFFECE6D8);
+  static const nightMuted = Color(0xFFA59F8E);
 }
 
 /// ألوان تتبدل حسب الوضع (فاتح/ليلي).
@@ -61,20 +65,20 @@ const quranFont = 'Hafs';
 ThemeData buildTheme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
   final bg = dark ? AppColors.nightBg : AppColors.paper;
-  final surface = dark ? AppColors.nightSurface : Colors.white;
+  final surface = dark ? AppColors.nightSurface : AppColors.sheet;
   final ink = dark ? AppColors.nightInk : AppColors.ink;
-  final primary = dark ? const Color(0xFF9DBB98) : AppColors.olive;
+  final primary = dark ? const Color(0xFFB7C9A3) : AppColors.olive;
   final palette = dark
       ? const Palette(
           card: AppColors.nightCard,
-          soft: Color(0xFF2A3A2E),
-          highlight: Color(0xFF5A4C25),
+          soft: Color(0xFF2B2922),
+          highlight: Color(0xFF4A3F22),
           muted: AppColors.nightMuted,
-          line: Color(0xFF2E3D32),
+          line: Color(0xFF36332B),
         )
       : const Palette(
-          card: Colors.white,
-          soft: AppColors.sageLight,
+          card: AppColors.sheet,
+          soft: AppColors.parchment,
           highlight: AppColors.wheatLight,
           muted: AppColors.muted,
           line: AppColors.line,
@@ -104,8 +108,8 @@ ThemeData buildTheme(Brightness brightness) {
     scaffoldBackgroundColor: bg,
     extensions: [palette],
     textTheme: text.copyWith(
-      headlineSmall: text.headlineSmall?.copyWith(fontWeight: FontWeight.w700, height: 1.3),
-      titleLarge: text.titleLarge?.copyWith(fontWeight: FontWeight.w700, height: 1.35),
+      headlineSmall: text.headlineSmall?.copyWith(fontFamily: readingFont, fontWeight: FontWeight.w700, height: 1.4),
+      titleLarge: text.titleLarge?.copyWith(fontFamily: readingFont, fontWeight: FontWeight.w700, height: 1.4),
       titleMedium: text.titleMedium?.copyWith(fontWeight: FontWeight.w500, height: 1.4),
       bodyLarge: text.bodyLarge?.copyWith(height: 1.6),
       bodyMedium: text.bodyMedium?.copyWith(height: 1.6),
@@ -117,20 +121,21 @@ ThemeData buildTheme(Brightness brightness) {
       elevation: 0,
       scrolledUnderElevation: 0.5,
       centerTitle: false,
-      titleTextStyle: TextStyle(fontFamily: uiFont, fontSize: 20, fontWeight: FontWeight.w700, color: ink),
+      // عناوين الصفحات بخط النسخ كعناوين الكتب، والواجهة بخط Readex.
+      titleTextStyle: TextStyle(fontFamily: readingFont, fontSize: 22, fontWeight: FontWeight.w700, color: ink, height: 1.4),
     ),
     cardTheme: CardThemeData(
       color: palette.card,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: palette.line)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: palette.line)),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        minimumSize: const Size(64, 52),
+        minimumSize: const Size(64, 50),
         textStyle: const TextStyle(fontFamily: uiFont, fontSize: 16, fontWeight: FontWeight.w500),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -139,7 +144,7 @@ ThemeData buildTheme(Brightness brightness) {
         foregroundColor: primary,
         side: BorderSide(color: palette.line),
         textStyle: const TextStyle(fontFamily: uiFont, fontSize: 15, fontWeight: FontWeight.w500),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
@@ -153,32 +158,66 @@ ThemeData buildTheme(Brightness brightness) {
       selectedColor: palette.soft,
       side: BorderSide(color: palette.line),
       labelStyle: TextStyle(fontFamily: uiFont, color: ink, fontSize: 14),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: palette.card,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: palette.line)),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: palette.line)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: primary, width: 1.5)),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: palette.line)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: palette.line)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: primary, width: 1.5)),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: surface,
+      backgroundColor: bg,
       surfaceTintColor: Colors.transparent,
-      indicatorColor: palette.soft,
+      indicatorColor: Colors.transparent,
       elevation: 0,
-      labelTextStyle: WidgetStatePropertyAll(TextStyle(fontFamily: uiFont, fontSize: 13, color: ink)),
+      height: 66,
+      labelTextStyle: WidgetStateProperty.resolveWith(
+        (s) => s.contains(WidgetState.selected)
+            ? TextStyle(fontFamily: uiFont, fontSize: 12.5, color: primary, fontWeight: FontWeight.w700)
+            : TextStyle(fontFamily: uiFont, fontSize: 12.5, color: palette.muted),
+      ),
       iconTheme: WidgetStateProperty.resolveWith(
         (s) => IconThemeData(color: s.contains(WidgetState.selected) ? primary : palette.muted),
       ),
     ),
-    progressIndicatorTheme: ProgressIndicatorThemeData(color: AppColors.sage, linearTrackColor: palette.soft),
-    dividerTheme: DividerThemeData(color: palette.line, space: 1),
+    progressIndicatorTheme: ProgressIndicatorThemeData(color: primary, linearTrackColor: palette.soft),
+    dividerTheme: DividerThemeData(color: palette.line, space: 1, thickness: 1),
+    listTileTheme: ListTileThemeData(iconColor: palette.muted),
+    dialogTheme: DialogThemeData(
+      backgroundColor: surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      titleTextStyle: TextStyle(fontFamily: readingFont, fontSize: 21, fontWeight: FontWeight.w700, color: ink, height: 1.4),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: surface,
+      surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(14))),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: palette.line)),
+    ),
     textSelectionTheme: TextSelectionThemeData(
       selectionColor: AppColors.wheat.withValues(alpha: 0.35),
       selectionHandleColor: AppColors.wheat,
       cursorColor: primary,
+    ),
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      backgroundColor: primary,
+      foregroundColor: dark ? AppColors.nightBg : Colors.white,
+      elevation: 2,
+      highlightElevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      extendedTextStyle: const TextStyle(fontFamily: uiFont, fontSize: 15, fontWeight: FontWeight.w500),
+    ),
+    checkboxTheme: CheckboxThemeData(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      side: BorderSide(color: palette.muted, width: 1.4),
     ),
     snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
   );

@@ -991,7 +991,7 @@ Future<void> showAyaSheet(BuildContext context, Aya a) {
               children: [
                 Text(
                   'سورة $suraName · الآية ${a.aya}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  style: const TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45),
                 ),
                 const SizedBox(height: 4),
                 Text('الصفحة ${a.page} · الجزء ${a.juz}', style: TextStyle(color: pal.muted, fontSize: 13)),

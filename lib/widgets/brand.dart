@@ -69,3 +69,49 @@ void toast(BuildContext context, String msg) {
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(msg, style: const TextStyle(fontFamily: uiFont))));
 }
+
+/// فاصل رفيع في وسطه معيّن صغير، كفواصل الأبواب في الكتب المطبوعة.
+class Ornament extends StatelessWidget {
+  final double width;
+  const Ornament({super.key, this.width = double.infinity});
+
+  @override
+  Widget build(BuildContext context) {
+    final line = Palette.of(context).line;
+    return SizedBox(
+      width: width,
+      height: 12,
+      child: Row(children: [
+        Expanded(child: Container(height: 1, color: line)),
+        const SizedBox(width: 8),
+        Transform.rotate(
+          angle: 0.785398,
+          child: Container(width: 6, height: 6, color: AppColors.wheat),
+        ),
+        const SizedBox(width: 8),
+        Expanded(child: Container(height: 1, color: line)),
+      ]),
+    );
+  }
+}
+
+/// عنوان قسم بخط النسخ يتبعه خط رفيع.
+class SectionTitle extends StatelessWidget {
+  final String text;
+  final Widget? trailing;
+  const SectionTitle(this.text, {super.key, this.trailing});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Palette.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 18, 2, 10),
+      child: Row(children: [
+        Text(text, style: const TextStyle(fontFamily: readingFont, fontSize: 19, fontWeight: FontWeight.w700, height: 1.3)),
+        const SizedBox(width: 12),
+        Expanded(child: Container(height: 1, color: pal.line)),
+        if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+      ]),
+    );
+  }
+}

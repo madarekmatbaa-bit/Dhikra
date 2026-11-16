@@ -81,7 +81,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       appBar: AppBar(
         titleSpacing: 0,
         title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('كتاب ${book.title}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          Text('كتاب ${book.title}', style: const TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.45)),
           Text(
             inWird ? 'حديث $current · ${current - log.fromPos + 1} من ${log.target} في ورد اليوم' : 'حديث $current',
             style: TextStyle(fontSize: 13, color: pal.muted, fontWeight: FontWeight.w400),
