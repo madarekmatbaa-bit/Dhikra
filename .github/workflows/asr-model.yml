@@ -31,6 +31,14 @@ jobs:
           mkdir -p out
           for size in tiny base; do
             python -c "from huggingface_hub import snapshot_download as s; s('tarteel-ai/whisper-$size-ar-quran', local_dir='/tmp/hf-$size')"
+            # نموذج base يذكر max_length=1024 في إعداده، وجدول المواضع في الملف 448 فقط.
+            python - "$size" <<'PY'
+          import json, sys
+          p = f"/tmp/hf-{sys.argv[1]}/config.json"
+          c = json.load(open(p))
+          c["max_length"] = c.get("max_target_positions", 448)
+          json.dump(c, open(p, "w"))
+          PY
             mkdir -p /tmp/g-$size
             python /tmp/whisper.cpp/models/convert-h5-to-ggml.py /tmp/hf-$size /tmp/openai-whisper /tmp/g-$size
             cp /tmp/g-$size/ggml-model.bin out/quran-$size-f16.bin
@@ -62,7 +70,7 @@ jobs:
         run: |
           {
           echo "## نتائج النماذج"
-          for m in tiny-q8_0 tiny-q5_1 base-q8_0 base-q5_1 base-f16; do
+          for m in tiny-q5_1 base-q8_0 base-q5_1; do
             echo "### $m ($(du -h out/quran-$m.bin | cut -f1))"
             for f in samples/*-all.wav samples/*001001.wav samples/*002002.wav; do
               [ -f "$f" ] || continue
@@ -88,7 +96,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: asr-1
+          tag_name: asr-2
           name: نموذج التسميع القرآني
           prerelease: true
           body: نماذج Whisper معدّلة على تلاوة القرآن (Tarteel) بصيغة whisper.cpp. ينزّلها التطبيق تلقائياً.
