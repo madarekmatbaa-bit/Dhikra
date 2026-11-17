@@ -7,7 +7,7 @@ rows = c.execute('select a.id, a.sura, a.aya, v.text from ayat a join voweled v 
 with open(out_tsv, 'w', encoding='utf-8') as f:
     for i, s, a, t in rows:
         f.write(f'{i}\t{t}\n')
-reciters = [l.strip() for l in open('tools/asr/eval_reciters.txt') if l.strip() and not l.startswith('#')]
+reciters = [l.strip() for l in open('tools/asr_eval/reciters.txt') if l.strip() and not l.startswith('#')]
 ok = [(s, a) for i, s, a, t in rows if 3 <= len(t.split()) <= 35]
 for k, r in enumerate(reciters):
     if k % shards != shard:

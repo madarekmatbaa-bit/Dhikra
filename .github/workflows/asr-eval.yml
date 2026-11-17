@@ -5,7 +5,7 @@ name: تقييم التسميع
 on:
   push:
     branches: ['claude/**']
-    paths: ['tools/asr/eval*', 'test/asr_eval_test.dart', '.github/workflows/asr-eval.yml']
+    paths: ['tools/asr_eval/**', 'test/asr_eval_test.dart', '.github/workflows/asr-eval.yml']
   workflow_dispatch:
 
 jobs:
@@ -36,7 +36,7 @@ jobs:
       - name: التلاوات
         run: |
           mkdir -p /tmp/wav
-          python3 tools/asr/eval_pick.py assets/data/quran.db ${{ matrix.shard }} 4 45 /tmp/voweled.tsv > /tmp/pick.txt
+          python3 tools/asr_eval/pick.py assets/data/quran.db ${{ matrix.shard }} 4 45 /tmp/voweled.tsv > /tmp/pick.txt
           bad=""
           while read r a; do
             case " $bad " in *" $r "*) continue;; esac
@@ -55,7 +55,7 @@ jobs:
           flutter pub get > /dev/null
           ASR_EVAL=/tmp/wav ASR_LIB=$(ls /tmp/asrbuild/*.so) MODEL=/tmp/model.bin VOWELED=/tmp/voweled.tsv \
             OUT=eval-${{ matrix.shard }}.csv flutter test test/asr_eval_test.dart --reporter expanded
-          python3 tools/asr/eval_report.py eval-${{ matrix.shard }}.csv | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 tools/asr_eval/report.py eval-${{ matrix.shard }}.csv | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -73,4 +73,4 @@ jobs:
           path: res
           merge-multiple: true
       - name: الملخص
-        run: python3 tools/asr/eval_report.py res/*.csv | tee -a "$GITHUB_STEP_SUMMARY"
+        run: python3 tools/asr_eval/report.py res/*.csv | tee -a "$GITHUB_STEP_SUMMARY"
