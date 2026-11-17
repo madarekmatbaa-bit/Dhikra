@@ -18,17 +18,51 @@ import 'recitation_listener.dart';
 /// نموذج التعرّف على التلاوة: Whisper معدّل على تلاوة القرآن (Tarteel)، بصيغة whisper.cpp.
 /// يُنزَّل مرة واحدة من إصدارات المستودع، ثم يعمل على الهاتف بلا إنترنت.
 class QuranAsrModel {
-  static const file = 'quran-base-q5_1.bin';
-  static const url = 'https://github.com/madarekmatbaa-bit/Dhikra/releases/download/asr-2/$file';
-  static const sha256Hex = 'acc1f03c8b1468b674b4fab50e0b2312cff982ba0001cd16fe36ca23862b6536';
-  static const approxMb = 60;
+  static const _base = 'https://github.com/madarekmatbaa-bit/Dhikra/releases/download/asr-2/';
 
-  static Future<String> path() async {
+  /// النموذج الأكبر يحكم على كل عبارة بعد الوقفة، والأصغر يتبع القارئ أثناء قراءته.
+  static const files = [
+    (name: 'quran-base-q5_1.bin', size: 59707625, sha: 'acc1f03c8b1468b674b4fab50e0b2312cff982ba0001cd16fe36ca23862b6536'),
+    (name: 'quran-tiny-q5_1.bin', size: 32152673, sha: 'af8dfdd73c60b32e4e6d72e98e095e33fbeb04b9d39508580d051aa28202c646'),
+  ];
+  static const file = 'quran-base-q5_1.bin';
+  static const url = '$_base$file';
+  static const sha256Hex = 'acc1f03c8b1468b674b4fab50e0b2312cff982ba0001cd16fe36ca23862b6536';
+  static const approxMb = 88;
+
+  static Future<String> path([String name = file]) async {
     final dir = await getApplicationSupportDirectory();
-    return p.join(dir.path, 'asr', file);
+    return p.join(dir.path, 'asr', name);
   }
 
-  static Future<bool> installed() async => File(await path()).existsSync();
+  static Future<String> tinyPath() => path(files[1].name);
+
+  static Future<bool> installed() async => await missingBytes() == 0;
+
+  /// ما بقي تنزيله من النموذجين.
+  static Future<int> missingBytes() async {
+    var n = 0;
+    for (final f in files) {
+      if (!File(await path(f.name)).existsSync()) n += f.size;
+    }
+    return n;
+  }
+
+  /// ينزّل ما ينقص من النموذجين بتقدّم واحد من 0 إلى 1. يعيد رسالة خطأ أو null.
+  static Future<String?> downloadAll(void Function(double progress) onProgress, {bool Function()? cancelled}) async {
+    final total = await missingBytes();
+    var done = 0;
+    for (final f in files) {
+      final dest = await path(f.name);
+      if (File(dest).existsSync()) continue;
+      final err = await download((x) => onProgress(total == 0 ? 1 : (done + x * f.size) / total),
+          cancelled: cancelled, from: '$_base${f.name}', to: dest, expectedSize: f.size, expectedSha: f.sha);
+      if (err != null) return err;
+      done += f.size;
+    }
+    onProgress(1);
+    return null;
+  }
 
   static const sizeBytes = 59707625;
 
@@ -131,8 +165,10 @@ class QuranAsrModel {
   }
 
   static Future<void> remove() async {
-    final f = File(await path());
-    if (f.existsSync()) await f.delete();
+    for (final m in files) {
+      final f = File(await path(m.name));
+      if (f.existsSync()) await f.delete();
+    }
   }
 }
 
@@ -181,6 +217,22 @@ String? _transcribeIn(int ctx, Float32List pcm, String prompt, int audioCtx, int
   }
 }
 
+typedef _ScoreC = Float Function(Pointer<Void>, Pointer<Utf8>, Int32, Pointer<Int32>);
+typedef _ScoreD = double Function(Pointer<Void>, Pointer<Utf8>, int, Pointer<Int32>);
+
+double _scoreIn(int ctx, String text, int threads, String libPath) {
+  _hostLib = libPath;
+  final f = _lib().lookupFunction<_ScoreC, _ScoreD>('dq_score');
+  final t = ' ${text.trim()}'.toNativeUtf8();
+  final n = malloc<Int32>();
+  try {
+    return f(Pointer.fromAddress(ctx), t, threads, n);
+  } finally {
+    malloc.free(t);
+    malloc.free(n);
+  }
+}
+
 /// محرّك Whisper: يحمّل النموذج مرة، وينسخ كل عبارة في خيط منفصل حتى لا تتجمد الواجهة.
 class WhisperEngine {
   int _ctx = 0;
@@ -223,6 +275,13 @@ class WhisperEngine {
     return text;
   }
 
+  /// احتمال النص (لوغاريتم) لآخر عبارة نُسخت. يجب أن يُستدعى بعد transcribe مباشرة.
+  Future<double> score(String text) async {
+    if (_ctx == 0) return 1;
+    final ctx = _ctx, lib = _hostLib, th = threads;
+    return Isolate.run(() => _scoreIn(ctx, text, th, lib));
+  }
+
   /// عبارة من أربع كلمات فأكثر تتكرر ثلاث مرات متتالية: النموذج يدور.
   static bool hasLoop(String text) => cutLoop(text) != text;
 
@@ -255,6 +314,7 @@ class QuranAsrListener implements ReciteListener {
   final _rec = AudioRecorder();
   // يبقى النموذج محمّلاً بين فتحات المصحف، فتحميله يأخذ ثانية أو اثنتين.
   static final _engine = WhisperEngine();
+  static final _fast = WhisperEngine();
   StreamSubscription<Uint8List>? _sub;
   late final SpeechSegmenter _seg = SpeechSegmenter(onPhrase: _onPhrase, onLevel: (l) => onLevel?.call(l * 10));
 
@@ -266,6 +326,10 @@ class QuranAsrListener implements ReciteListener {
   void Function(String message)? onFatal;
   @override
   void Function(double level)? onLevel;
+
+  /// العبارة النهائية مع ما يلزم للتحقق من أخطائها قبل عرضها. إن عُيّن استُعمل بدل onWords
+  /// للنتائج النهائية، وينتظر المستمع انتهاءه قبل أي نسخ آخر بالنموذج الكبير.
+  Future<void> Function(List<String> words, PhraseJudge judge, bool newPhrase)? onJudged;
 
   /// نص المصحف الذي قرأه القارئ قبل العبارة، يُعطى للنموذج ليتّبع إملاءه.
   String Function()? context;
@@ -280,6 +344,10 @@ class QuranAsrListener implements ReciteListener {
     if (!_engine.ready) {
       final ok = await _engine.load(await QuranAsrModel.path());
       if (!ok) return 'تعذّر تحميل نموذج التلاوة. احذفه من الإعدادات ونزّله من جديد.';
+    }
+    if (!_fast.ready) {
+      final tiny = await QuranAsrModel.tinyPath();
+      if (File(tiny).existsSync()) await _fast.load(tiny);
     }
     try {
       final stream = await _rec.startStream(const RecordConfig(
@@ -312,17 +380,39 @@ class QuranAsrListener implements ReciteListener {
     _seg.flush();
     await WakelockPlus.disable();
     // ننتظر نسخ العبارة الأخيرة لتُحسب أخطاؤها في الملخص.
-    for (var i = 0; i < 60 && (_busy || _finals.isNotEmpty); i++) {
+    for (var i = 0; i < 80 && (_busy || _finals.isNotEmpty); i++) {
       await Future.delayed(const Duration(milliseconds: 100));
     }
   }
+
+  bool _fastBusy = false;
 
   void _onPhrase(Float32List pcm, bool isFinal) {
     if (isFinal) {
       _finals.add(pcm);
       _pump();
+    } else if (_fast.ready) {
+      // النموذج الصغير يتبع القارئ أثناء العبارة دون أن ينتظر الكبير.
+      if (!_fastBusy) _interim(pcm);
     } else if (!_busy && _finals.isEmpty) {
       _run(pcm, false);
+    }
+  }
+
+  Future<void> _interim(Float32List pcm) async {
+    _fastBusy = true;
+    try {
+      final text = await _fast.transcribe(pcm);
+      final words = text == null ? const <String>[] : recitationWords(text);
+      // نتيجة جزئية بعد أن أُغلقت العبارة بنتيجتها النهائية لا معنى لها.
+      if (words.isNotEmpty && active && (_phraseOpen || !_busy)) {
+        final newPhrase = !_phraseOpen;
+        _phraseOpen = true;
+        onWords?.call([words], newPhrase, false);
+      }
+    } catch (_) {
+    } finally {
+      _fastBusy = false;
     }
   }
 
@@ -339,7 +429,12 @@ class QuranAsrListener implements ReciteListener {
       if (words.isNotEmpty) {
         final newPhrase = !_phraseOpen;
         _phraseOpen = !isFinal;
-        onWords?.call([words], newPhrase, isFinal);
+        final judged = onJudged;
+        if (isFinal && judged != null) {
+          await judged(words, PhraseJudge(text!, _engine.score), newPhrase);
+        } else {
+          onWords?.call([words], newPhrase, isFinal);
+        }
       } else if (isFinal && _phraseOpen) {
         // لم يُفهم شيء في آخر العبارة: نغلقها بما سُمع جزئياً.
         _phraseOpen = false;
@@ -356,7 +451,36 @@ class QuranAsrListener implements ReciteListener {
   }
 
   /// يحرّر النموذج من الذاكرة (عند حذفه من الإعدادات).
-  static void unload() => _engine.dispose();
+  static void unload() {
+    _engine.dispose();
+    _fast.dispose();
+  }
+}
+
+/// يحكم على أخطاء عبارة بالموازنة: احتمال ما سمعه النموذج، واحتمال النص لو كانت
+/// الكلمة صحيحة. لا يُعدّ خطأً إلا ما رجّح النموذج أنه قيل فعلاً بفارق واضح.
+class PhraseJudge {
+  final String text;
+  final Future<double> Function(String) _score;
+  PhraseJudge(this.text, this._score);
+
+  /// الكلمات كما خرجت من النموذج بحركاتها، مقابل الكلمات المطبّعة.
+  List<String> get raw => pairWords(text).$2;
+
+  double? _hyp;
+
+  /// الفرق (باللوغاريتم) الذي يلزم ليُعدّ الخطأ مؤكداً: نحو ست مرات أرجح لكلمة،
+  /// وأكثر للحركة لأن النموذج أقل يقيناً بالحركات.
+  static const wordMargin = 6.0, harakatMargin = 8.0;
+
+  /// هل النص المصحَّح [corrected] أبعد احتمالاً مما سُمع بفارق [margin]؟
+  Future<bool> confirms(String corrected, {double margin = wordMargin}) async {
+    final h = _hyp ??= await _score(text);
+    if (h > 0) return true; // تعذّر الحساب: نُبقي حكم المقارنة
+    final c = await _score(corrected);
+    if (c > 0) return true;
+    return h - c >= margin;
+  }
 }
 
 enum _Fetch { done, progressed, online, offline, cancelled }

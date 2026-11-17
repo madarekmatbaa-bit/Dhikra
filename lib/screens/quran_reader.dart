@@ -107,6 +107,7 @@ class _QuranReaderState extends State<QuranReader> {
   }
 
   void _wire(ReciteListener l) {
+    if (l is QuranAsrListener) l.onJudged = _onJudged;
     l
       ..onWords = _onWords
       ..onLevel = (v) {
@@ -405,9 +406,9 @@ class _QuranReaderState extends State<QuranReader> {
     final segs = <RecitedSegment>[];
     for (final a in ayat) {
       if (a.aya == 1 && a.sura != 1 && a.sura != 9) {
-        segs.add(RecitedSegment(-a.sura, db.basmalaPlain, uthmani: db.basmala));
+        segs.add(RecitedSegment(-a.sura, db.basmalaVoweled, uthmani: db.basmala));
       }
-      segs.add(RecitedSegment(a.id, a.plain, uthmani: QuranDb.stripNumber(a.text)));
+      segs.add(RecitedSegment(a.id, a.voweled, uthmani: QuranDb.stripNumber(a.text)));
     }
     final t = RecitationTracker(segs)
       ..strict = _q.strictLetters
@@ -436,34 +437,69 @@ class _QuranReaderState extends State<QuranReader> {
       _phraseTracker = t;
       _phrasePage = page;
     }
-    var fresh = 0;
     if (isFinal && _phraseTracker != null) {
       // النتيجة النهائية أدق: نعيد العبارة كلها بها، ومنها وحدها نحكم على الأخطاء.
       final pt = _phraseTracker!;
       final r = pt.replayFinal(alternatives);
-      fresh = r.$2;
-      _collect(pt);
-      _pageStates[_phrasePage] = pt.wordStates;
-      _phraseTracker = null;
-      if (!identical(pt, t)) {
-        _report(fresh);
-        setState(() {});
-        return;
-      }
-      _consumed = r.$1;
-      final words = alternatives.first;
-      if (!pt.matchedInPhrase && words.length >= 3) {
-        _locate(words, pt);
-      } else if (pt.matchedInPhrase) {
-        _located = true;
-      }
+      _afterFinal(pt, r.$1, r.$2, alternatives.first);
+      return;
     } else if (t != null) {
       _consumed = t.feed(t.best(alternatives, _consumed), _consumed, markMistakes: false).$1;
     } else {
       return;
     }
+    _advance(t);
+  }
+
+  /// نتيجة العبارة النهائية من نموذج التلاوة: قبل أن يُعرض أي خطأ يوازن النموذج بين
+  /// ما سمعه والنص لو قُرئت الكلمة صحيحة، فإن لم يرجّح الخطأ بفارق واضح رُفع عنها.
+  Future<void> _onJudged(List<String> words, PhraseJudge judge, bool newPhrase) async {
+    if (!mounted) return;
+    if (newPhrase) {
+      _consumed = 0;
+      _tracker?.beginPhrase();
+      _phraseTracker = _tracker;
+      _phrasePage = page;
+    }
+    final pt = _phraseTracker;
+    if (pt == null) return;
+    final r = pt.replayFinal([words], raw: judge.raw);
+    var fresh = 0;
+    for (final k in pt.phraseMistakes) {
+      final corrected = pt.correctedPhrase(k);
+      final margin = pt.why[k]?.kind == MistakeKind.harakat ? PhraseJudge.harakatMargin : PhraseJudge.wordMargin;
+      if (corrected != null && !await judge.confirms(corrected, margin: margin)) {
+        pt.dismiss(k);
+      } else {
+        fresh++;
+      }
+    }
+    if (!mounted) return;
+    _afterFinal(pt, r.$1, r.$2 == 0 ? 0 : fresh, words);
+  }
+
+  void _afterFinal(RecitationTracker pt, int consumed, int fresh, List<String> words) {
+    final t = _tracker;
+    _collect(pt);
+    _pageStates[_phrasePage] = pt.wordStates;
+    _phraseTracker = null;
+    if (!identical(pt, t)) {
+      _report(fresh);
+      setState(() {});
+      return;
+    }
+    _consumed = consumed;
+    if (!pt.matchedInPhrase && words.length >= 3) {
+      _locate(words, pt);
+    } else if (pt.matchedInPhrase) {
+      _located = true;
+    }
     _report(fresh);
-    _pageStates[page] = t!.wordStates;
+    _advance(pt);
+  }
+
+  void _advance(RecitationTracker t) {
+    _pageStates[page] = t.wordStates;
     if (t.finished && page < quranPages) {
       // انتهت الصفحة: نقلبها ونكمل بما بقي من العبارة نفسها.
       _collect(t);
@@ -518,6 +554,48 @@ class _QuranReaderState extends State<QuranReader> {
     if (fresh <= 0) return;
     _mistakeCount += fresh;
     _alert.play(sound: _q.mistakeSound);
+  }
+
+  /// يعرض سبب الخطأ في الكلمة [key] من الصفحة المفتوحة، ويتيح رفعه إن كان النموذج مخطئاً.
+  void _explain(String key) {
+    final t = _tracker;
+    final k = t?.positionOf(key);
+    if (t == null || k == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (c) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              const Icon(Icons.error_outline, color: mistakeColor),
+              const SizedBox(width: 8),
+              Text(t.voweledAt(k), style: const TextStyle(fontFamily: readingFont, fontSize: 24, height: 1.6)),
+            ]),
+            const SizedBox(height: 6),
+            Text(explainMistake(t.why[k], t.voweledAt(k)),
+                style: const TextStyle(fontFamily: readingFont, fontSize: 17, height: 1.7)),
+            const SizedBox(height: 10),
+            Row(children: [
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pop(c);
+                  setState(() {
+                    t.dismiss(k);
+                    if (_mistakeCount > 0) _mistakeCount--;
+                    _pageStates[page] = t.wordStates;
+                  });
+                },
+                icon: const Icon(Icons.check),
+                label: const Text('قرأتها صحيحة'),
+              ),
+              const Spacer(),
+              TextButton(onPressed: () => Navigator.pop(c), child: const Text('حسناً')),
+            ]),
+          ]),
+        ),
+      ),
+    );
   }
 
   void _followFrom(Aya a) {
@@ -666,6 +744,7 @@ class _QuranReaderState extends State<QuranReader> {
                   icon: Icon(following ? Icons.mic : Icons.mic_none, color: following ? AppColors.wheat : null),
                   onPressed: _toggleFollow,
                 ),
+                IconButton(tooltip: 'ملء الشاشة', icon: const Icon(Icons.fullscreen), onPressed: () => _setFullscreen(true)),
                 IconButton(tooltip: 'الفهرس', icon: const Icon(Icons.list), onPressed: _openIndex),
                 PopupMenuButton<String>(
                   onSelected: (v) {
@@ -696,7 +775,6 @@ class _QuranReaderState extends State<QuranReader> {
                     const PopupMenuItem(value: 'in', child: Text('كبّر الخط')),
                     const PopupMenuItem(value: 'out', child: Text('صغّر الخط')),
                     if (!s.quran.fitPage) const PopupMenuItem(value: 'fit', child: Text('الصفحة على قد الشاشة')),
-                    const PopupMenuItem(value: 'full', child: Text('ملء الشاشة')),
                     PopupMenuItem(value: 'hide', child: Text(hideText ? 'أظهر النص' : 'اختبر حفظك (أخفِ النص)')),
                     CheckedPopupMenuItem(
                       value: 'sound',
@@ -761,6 +839,7 @@ class _QuranReaderState extends State<QuranReader> {
             wordStates: _pageStates[i + 1],
             hideText: hideText,
             onAyaTap: following ? _followFrom : null,
+            onMistakeTap: _explain,
             onHeaderTap: fullscreen ? () => _setFullscreen(false) : null,
             onFitFont: (f) => _lastFitFont = f,
           ),
@@ -800,6 +879,9 @@ class QuranPageView extends StatefulWidget {
   final Map<String, WordState>? wordStates;
   final bool hideText;
   final ValueChanged<Aya>? onAyaTap;
+
+  /// ضغطة على كلمة حمراء («مفتاح المقطع:رقم الكلمة»): يُعرض سبب الخطأ.
+  final ValueChanged<String>? onMistakeTap;
   final VoidCallback? onHeaderTap;
   final ValueChanged<double>? onFitFont;
   const QuranPageView({
@@ -813,6 +895,7 @@ class QuranPageView extends StatefulWidget {
     this.wordStates,
     this.hideText = false,
     this.onAyaTap,
+    this.onMistakeTap,
     this.onHeaderTap,
     this.onFitFont,
   });
@@ -866,6 +949,15 @@ class _QuranPageViewState extends State<QuranPageView> {
           showAyaSheet(context, a);
         }
       };
+    _recognizers.add(r);
+    return r;
+  }
+
+  /// للكلمة الحمراء ضغطة تعرض سبب خطئها، ولغيرها ضغطة الآية.
+  GestureRecognizer? _wordTap(String key, GestureRecognizer? fallback) {
+    final f = widget.onMistakeTap;
+    if (f == null || widget.wordStates?[key] != WordState.mistake) return fallback;
+    final r = TapGestureRecognizer()..onTap = () => f(key);
     _recognizers.add(r);
     return r;
   }
@@ -1057,6 +1149,7 @@ class _QuranPageViewState extends State<QuranPageView> {
                         for (var k = 0; k < words.length; k++)
                           TextSpan(
                             text: k < words.length - 1 ? '${words[k]} ' : words[k],
+                            recognizer: _wordTap('$key:$k', null),
                             style: _wordStyle(widget.wordStates?['$key:$k'], pal),
                           ),
                       ],
@@ -1096,7 +1189,7 @@ class _QuranPageViewState extends State<QuranPageView> {
                       for (var k = 0; k < words.length; k++)
                         TextSpan(
                           text: k < words.length - 1 ? '${words[k]} ' : words[k],
-                          recognizer: rec,
+                          recognizer: _wordTap('${a.id}:$k', rec),
                           style: _wordStyle(widget.wordStates?['${a.id}:$k'], pal),
                         ),
                       TextSpan(text: '${a.text.substring(body.length)} ', recognizer: rec),

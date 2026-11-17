@@ -25,7 +25,7 @@ class SpeechSegmenter {
     this.onLevel,
     this.endSilence = const Duration(milliseconds: 420),
     this.maxPhrase = const Duration(seconds: 20),
-    this.interimEvery = const Duration(milliseconds: 2400),
+    this.interimEvery = const Duration(milliseconds: 1000),
   });
 
   final _pending = <double>[];
@@ -164,7 +164,7 @@ class SpeechSegmenter {
       _frameEnergy.addAll(restE);
       return;
     }
-    if (_sinceInterim >= _interimFrames && _speechFrames > 20) {
+    if (_sinceInterim >= _interimFrames && _speechFrames > 15) {
       _sinceInterim = 0;
       onPhrase(Float32List.fromList(_phrase), false);
     }

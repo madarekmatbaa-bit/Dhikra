@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
+#include <cmath>
 
 #include "whisper.h"
 
@@ -67,4 +69,44 @@ DQ_API char *dq_transcribe(void *ctx, const float *pcm, int n_samples, const cha
     char *r = static_cast<char *>(malloc(out.size() + 1));
     memcpy(r, out.c_str(), out.size() + 1);
     return r;
+}
+
+// احتمال النص [text] (لوغاريتم، مجموعاً على رموزه) لآخر صوت مرّ على dq_transcribe.
+// به نوازن بين ما سمعه النموذج وما في المصحف: إن كان نص المصحف قريب الاحتمال
+// فالنموذج غير متأكد، ولا نعدّ الكلمة خطأً.
+// يعيد أيضاً عدد الرموز في [n_tokens_out]. يعيد 1 عند الفشل.
+DQ_API float dq_score(void *ctx, const char *text, int threads, int *n_tokens_out) {
+    if (n_tokens_out) *n_tokens_out = 0;
+    if (!ctx || !text) return 1.0f;
+    auto *wctx = static_cast<whisper_context *>(ctx);
+    const int n_max = 448;
+    std::vector<whisper_token> toks(n_max);
+    const int n = whisper_tokenize(wctx, text, toks.data(), n_max - 8);
+    if (n <= 0) return 1.0f;
+    std::vector<whisper_token> prefix = {
+        whisper_token_sot(wctx),
+        whisper_token_lang(wctx, whisper_lang_id("ar")),
+        whisper_token_transcribe(wctx),
+        whisper_token_not(wctx),
+    };
+    const int th = threads > 0 ? threads : 4;
+    if (whisper_decode(wctx, prefix.data(), (int)prefix.size(), 0, th) != 0) return 1.0f;
+    const int n_vocab = whisper_n_vocab(wctx);
+    double total = 0;
+    int past = (int)prefix.size();
+    // الرمز التالي بعد النص: نهاية النص، فلا يُكافأ نص مبتور.
+    toks[n] = whisper_token_eot(wctx);
+    for (int i = 0; i <= n; i++) {
+        const float *logits = whisper_get_logits(wctx);
+        float mx = -1e30f;
+        for (int v = 0; v < n_vocab; v++) mx = logits[v] > mx ? logits[v] : mx;
+        double sum = 0;
+        for (int v = 0; v < n_vocab; v++) sum += std::exp((double)(logits[v] - mx));
+        total += (double)(logits[toks[i]] - mx) - std::log(sum);
+        if (i == n) break;
+        if (whisper_decode(wctx, &toks[i], 1, past, th) != 0) return 1.0f;
+        past++;
+    }
+    if (n_tokens_out) *n_tokens_out = n;
+    return (float)total;
 }

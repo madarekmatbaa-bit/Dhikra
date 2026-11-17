@@ -8,12 +8,43 @@ import 'arabic.dart';
 class RecitedSegment {
   final int key;
   final List<String> words;
+
+  /// الكلمات بحركاتها كما في النص المشكول (إن كان مشكولاً)، مقابل [words] كلمةً كلمة.
+  final List<String> voweled;
   final List<int> display;
-  RecitedSegment(this.key, String plain, {String? uthmani})
-    : words = recitationWords(plain),
-      display = uthmani == null
-          ? List.generate(recitationWords(plain).length, (i) => i)
-          : mapToDisplay(uthmani, recitationWords(plain));
+  RecitedSegment._(this.key, this.words, this.voweled, this.display);
+
+  factory RecitedSegment(int key, String text, {String? uthmani}) {
+    final (words, raw) = pairWords(text);
+    return RecitedSegment._(
+        key, words, raw, uthmani == null ? List.generate(words.length, (i) => i) : mapToDisplay(uthmani, words));
+  }
+}
+
+/// كلمات النص مطبّعة، ومعها كل كلمة كما كُتبت (بحركاتها)، بالترتيب نفسه.
+(List<String>, List<String>) pairWords(String text) {
+  final norm = <String>[], raw = <String>[];
+  for (final t in text.trim().split(RegExp(r'\s+'))) {
+    for (final w in recitationWords(t)) {
+      norm.add(w);
+      raw.add(t);
+    }
+  }
+  return (norm, raw);
+}
+
+/// نوع الخطأ في كلمة، وما سُمع مكانها، ليُعرض سببه.
+enum MistakeKind { substituted, skipped, letters, harakat }
+
+class MistakeInfo {
+  final MistakeKind kind;
+
+  /// ما سُمع مكان الكلمة (بحركاته)، أو null إن سقطت.
+  final String? heard;
+
+  /// موضع المسموع في العبارة: الكلمة المبدلة، أو الكلمة التي استأنف بها بعد الساقطة.
+  final int heardIndex;
+  const MistakeInfo(this.kind, this.heard, this.heardIndex);
 }
 
 /// كلمات النص بعد التطبيع، دون علامات الترقيم والأرقام.
@@ -73,6 +104,16 @@ class RecitationTracker {
   final List<String> _words = [];
   final List<int> _wordSeg = [];
   final List<int> _wordDisp = [];
+  final List<String> _vow = [];
+
+  /// سبب كل خطأ: ما سُمع مكانه ونوعه.
+  final Map<int, MistakeInfo> why = {};
+
+  /// ضبط الحركات: تُعدّ الكلمة المقروءة بحركة مختلفة خطأً (اللحن الجلي).
+  bool harakat = false;
+
+  /// كلمات العبارة الحالية كما خرجت من النموذج بحركاتها، مقابل المسموع المطبّع.
+  List<String> _raw = const [];
 
   /// موضع الكلمة التالية المنتظرة.
   int pos = 0;
@@ -103,6 +144,7 @@ class RecitationTracker {
         _words.add(s.words[k]);
         _wordSeg.add(i);
         _wordDisp.add(k < s.display.length ? s.display[k] : k);
+        _vow.add(k < s.voweled.length ? s.voweled[k] : s.words[k]);
       }
     }
   }
@@ -182,20 +224,32 @@ class RecitationTracker {
     var newMistakes = 0;
     while (i < heard.length && !finished) {
       if (similarWord(heard[i], _words[pos])) {
-        if (markMistakes && strict && _wrongLetters(heard[i], pos) && mistakes.add(pos)) newMistakes++;
+        if (markMistakes) {
+          String? r = i < _raw.length ? _raw[i] : null;
+          if (strict && _wrongLetters(heard[i], pos)) {
+            if (mistakes.add(pos)) newMistakes++;
+            why[pos] = MistakeInfo(MistakeKind.letters, r ?? heard[i], i);
+          } else if (harakat && r != null && harakatDiffer(r, _vow[pos])) {
+            if (mistakes.add(pos)) newMistakes++;
+            why[pos] = MistakeInfo(MistakeKind.harakat, r, i);
+          }
+        }
         pos++;
         i++;
         _matchedInPhrase = _everMatched = true;
         continue;
       }
-      final jump = _findAhead(heard, i);
+      final jump = _findAhead(heard, i, lastIsFinal: markMistakes);
       if (jump != null) {
         final skipped = jump.$1 - jump.$2 - pos;
         final inContext = _matchedInPhrase || wholePhrases && _everMatched;
         if (markMistakes && inContext && skipped <= 3) {
           for (var k = pos; k < pos + skipped; k++) {
             // الأدوات القصيرة («من»، «لا») كثيراً ما يُسقطها التعرّف، فلا نعدّها خطأً.
-            if (_words[k].length >= 3 && mistakes.add(k)) newMistakes++;
+            if (_words[k].length >= 3 && mistakes.add(k)) {
+              newMistakes++;
+              why[k] = MistakeInfo(MistakeKind.skipped, null, i);
+            }
           }
         }
         pos = jump.$1;
@@ -232,12 +286,14 @@ class RecitationTracker {
   }
 
   /// يعيد العبارة من أولها بنتيجتها النهائية (وهي أدق من الجزئية)، ويعدّ أخطاءها.
-  (int, int) replayFinal(List<List<String>> alternatives) {
+  (int, int) replayFinal(List<List<String>> alternatives, {List<String>? raw}) {
     final before = mistakes.length;
     pos = _phrasePos;
     mistakes
       ..clear()
       ..addAll(_phraseMistakes);
+    why.removeWhere((k, _) => !mistakes.contains(k));
+    _raw = raw ?? const [];
     final heard = best(alternatives, 0);
     var r = feed(heard, 0, alternatives: alternatives);
     if (wholePhrases && _matchedInPhrase) r = (_finishTail(heard, r.$1), r.$2);
@@ -255,16 +311,62 @@ class RecitationTracker {
         continue;
       }
       if (pos + 1 < _words.length && similarWord(w, _words[pos + 1])) {
-        if (_words[pos].length >= 3) mistakes.add(pos);
+        if (_words[pos].length >= 3 && mistakes.add(pos)) why[pos] = MistakeInfo(MistakeKind.skipped, null, i);
         pos += 2;
       } else {
-        mistakes.add(pos);
+        if (mistakes.add(pos)) why[pos] = MistakeInfo(MistakeKind.substituted, i < _raw.length ? _raw[i] : w, i);
         pos++;
       }
       i++;
       n++;
     }
     return i;
+  }
+
+  /// الأخطاء التي عُدّت في العبارة الأخيرة (منذ beginPhrase)، ليُتحقق منها.
+  List<int> get phraseMistakes => [for (final k in mistakes) if (!_phraseMistakes.contains(k)) k]..sort();
+
+  /// يرفع الخطأ عن الكلمة [k] إن لم يتأكد منه النموذج.
+  void dismiss(int k) {
+    mistakes.remove(k);
+    why.remove(k);
+  }
+
+  /// الكلمة الصحيحة بحركاتها.
+  String voweledAt(int k) => _vow[k];
+
+  /// مفتاح المقطع ورقم الكلمة المعروضة للموضع [k].
+  String displayKey(int k) => '${_keys[_wordSeg[k]]}:${_wordDisp[k]}';
+
+  /// موضع أول كلمة إملائية تقابل الكلمة المعروضة [key] («مفتاح:رقم»)، أو null.
+  int? positionOf(String key) {
+    for (var i = 0; i < _words.length; i++) {
+      if (displayKey(i) == key) return i;
+    }
+    return null;
+  }
+
+  /// نص العبارة لو قرأ القارئ الكلمة [k] صحيحة، والباقي كما سمعه النموذج.
+  /// يوازن النموذج بينه وبين ما سمعه: إن قارب احتماله فالخطأ غير مؤكد.
+  String? correctedPhrase(int k) {
+    final w = why[k];
+    if (w == null || _raw.isEmpty) return null;
+    final out = [..._raw];
+    final at = w.heardIndex.clamp(0, out.length);
+    if (w.kind == MistakeKind.skipped) {
+      out.insert(at, _vow[k]);
+    } else if (at < out.length) {
+      out[at] = _vow[k];
+    } else {
+      return null;
+    }
+    // كلمة مقسومة على كلمتين مطبّعتين تتكرر في _raw: نحذف التكرار.
+    final dedup = <String>[];
+    for (var i = 0; i < out.length; i++) {
+      if (i > 0 && identical(out[i], out[i - 1])) continue;
+      dedup.add(out[i]);
+    }
+    return dedup.join(' ');
   }
 
   /// كم كلمة من المسموع (بدءاً من [from]) تطابق كلمات قريبة أمام الموضع.
@@ -330,14 +432,19 @@ class RecitationTracker {
   }
 
   /// يبحث أمام الموضع عن تطابق كلمات متتالية تبدأ بالكلمة [i] من المسموع.
-  (int, int)? _findAhead(List<String> heard, int i) {
+  (int, int)? _findAhead(List<String> heard, int i, {bool lastIsFinal = false}) {
     const window = 160;
     final end = (pos + window).clamp(0, _words.length);
     for (var j = pos + 1; j < end; j++) {
       if (!similarWord(heard[i], _words[j])) continue;
       // كلما بعدت القفزة احتجنا إلى تطابق أطول حتى لا نقفز خطأً.
-      final need = j - pos <= 3 ? 2 : 3;
-      if (i + need > heard.length) return null; // ننتظر كلمات أكثر
+      var need = j - pos <= 3 ? 2 : 3;
+      if (i + need > heard.length) {
+        // آخر كلمة في عبارة نهائية تطابق كلمة طويلة بعد كلمة أو كلمتين: سقط ما بينهما.
+        // (يتحقق النموذج بعدها من أن الساقط لم يُقرأ.)
+        if (!lastIsFinal || i != heard.length - 1 || j - pos > 2 || heard[i].length < 4 || !_everMatched) return null;
+        need = 1;
+      }
       var ok = true;
       for (var k = 1; k < need; k++) {
         if (j + k >= _words.length || !similarWord(heard[i + k], _words[j + k])) {
@@ -409,3 +516,53 @@ int _distance(String a, String b, int cap) {
 
 /// مفتاح الكلمة للبحث: هيكلها بلا حروف المد والهمزات.
 String wordKey(String s) => _skeleton(s);
+
+final _marks = RegExp('[\u064b-\u0652]');
+const _hamzaSeats = {'أ', 'إ', 'آ', 'ٱ'};
+
+/// حركات الكلمة حرفاً حرفاً: لكل حرف مجموعة علاماته (بلا السكون).
+List<(String, String)> _letterMarks(String w) {
+  final out = <(String, String)>[];
+  for (final ch in w.split('')) {
+    if (_marks.hasMatch(ch)) {
+      if (out.isEmpty || ch == '\u0652') continue;
+      final (l, m) = out.removeLast();
+      out.add((l, m + ch));
+    } else if (RegExp('[ء-ي]').hasMatch(ch)) {
+      out.add((ch, ''));
+    }
+  }
+  return [for (final (l, m) in out) (l, (m.split('')..sort()).join())];
+}
+
+/// هل قُرئت الكلمة بحرفها نفسه وحركة مختلفة؟ تُقارن حركات كل الحروف إلا الأخير
+/// (يتغير بالوقف والوصل)، وحروف المد بلا حركة لا تُقارن.
+bool harakatDiffer(String heard, String want) {
+  if (normalizeArabic(heard) != normalizeArabic(want)) return false;
+  final a = _letterMarks(heard), b = _letterMarks(want);
+  if (a.length != b.length || a.length < 2) return false;
+  for (var i = 0; i < a.length - 1; i++) {
+    final (la, ma) = a[i];
+    final (lb, mb) = b[i];
+    // همزة القطع مفتوحة أو مكسورة (أ / إ) فرق في الحركة.
+    if (la != lb && _hamzaSeats.contains(la) && _hamzaSeats.contains(lb) && (la == 'إ') != (lb == 'إ')) return true;
+    if (ma.isEmpty || mb.isEmpty) continue; // حرف بلا حركة في أحدهما: لا نحكم
+    if (ma != mb) return true;
+  }
+  return false;
+}
+
+/// وصف الخطأ بالعربية لمن يسأل عن سببه.
+String explainMistake(MistakeInfo? w, String want) {
+  if (w == null) return 'عُدّت هذه الكلمة خطأً.';
+  switch (w.kind) {
+    case MistakeKind.skipped:
+      return 'لم تُقرأ هذه الكلمة: انتقلتَ إلى ما بعدها.';
+    case MistakeKind.substituted:
+      return 'سُمعت «${w.heard}» مكان «$want».';
+    case MistakeKind.letters:
+      return 'قُرئت «${w.heard}» بحرف مختلف عن «$want».';
+    case MistakeKind.harakat:
+      return 'قُرئت «${w.heard}» بحركة مختلفة، والصواب «$want».';
+  }
+}

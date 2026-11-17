@@ -22,6 +22,15 @@ class _DownloadSheetState extends State<_DownloadSheet> {
   double? progress;
   String? error;
   bool cancelled = false;
+  int total = QuranAsrModel.files.fold(0, (a, f) => a + f.size);
+
+  @override
+  void initState() {
+    super.initState();
+    QuranAsrModel.missingBytes().then((n) {
+      if (mounted && n > 0) setState(() => total = n);
+    });
+  }
 
   Future<void> _start() async {
     setState(() {
@@ -29,7 +38,7 @@ class _DownloadSheetState extends State<_DownloadSheet> {
       error = null;
       cancelled = false;
     });
-    final err = await QuranAsrModel.download(
+    final err = await QuranAsrModel.downloadAll(
       (p) {
         if (mounted) setState(() => progress = p);
       },
@@ -60,7 +69,7 @@ class _DownloadSheetState extends State<_DownloadSheet> {
           Text(
             'نموذج تعرّف على الكلام مدرَّب على تلاوة القرآن، يعمل على هاتفك بلا إنترنت. '
             'أدق بكثير من خدمة Google في سماع التلاوة والحكم على الخطأ، ولا يخرج صوتك من الهاتف.\n'
-            'يُنزَّل مرة واحدة، نحو ${QuranAsrModel.approxMb} ميغابايت، ويُفضَّل على شبكة Wi-Fi.',
+            'يُنزَّل مرة واحدة، نحو ${(total / 1048576).round()} ميغابايت، ويُفضَّل على شبكة Wi-Fi.',
             style: TextStyle(color: pal.muted, fontSize: 14.5, height: 1.6),
           ),
           const SizedBox(height: 16),
@@ -68,7 +77,7 @@ class _DownloadSheetState extends State<_DownloadSheet> {
             LinearProgressIndicator(value: progress == 0 ? null : progress, minHeight: 6, borderRadius: BorderRadius.circular(3)),
             const SizedBox(height: 8),
             Text(
-              '${((progress ?? 0) * QuranAsrModel.sizeBytes / 1048576).round()} من ${(QuranAsrModel.sizeBytes / 1048576).round()} ميغابايت'
+              '${((progress ?? 0) * total / 1048576).round()} من ${(total / 1048576).round()} ميغابايت'
               '${(progress ?? 0) >= 1 ? ' · نتحقق من سلامة الملف…' : ''}',
               style: TextStyle(color: pal.muted, fontSize: 13),
             ),
