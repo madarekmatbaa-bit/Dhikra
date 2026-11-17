@@ -9,6 +9,7 @@ import '../state/library.dart';
 import '../theme.dart';
 import '../util/arabic.dart';
 import '../widgets/brand.dart';
+import '../widgets/ornaments.dart';
 import 'book_reader.dart';
 import 'home_shell.dart';
 
@@ -48,14 +49,8 @@ class _LibraryTabState extends State<LibraryTab> {
 
     List<Widget> section(String title, List<Book> list, {String? shelf}) => [
       Padding(
-        padding: const EdgeInsets.fromLTRB(4, 14, 4, 8),
-        child: Row(
-          children: [
-            Icon(shelf == null ? Icons.inbox_outlined : Icons.shelves, size: 18, color: AppColors.wheat),
-            const SizedBox(width: 6),
-            Expanded(child: Label('$title · ${list.length}')),
-          ],
-        ),
+        padding: const EdgeInsets.only(top: 16),
+        child: SectionHead(title, trailing: '${list.length}'),
       ),
       if (list.isEmpty)
         Padding(
@@ -91,23 +86,18 @@ class _LibraryTabState extends State<LibraryTab> {
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 96),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
           children: [
-            Row(
-              children: [
-                Expanded(child: Text('المكتبة', style: Theme.of(context).textTheme.titleLarge)),
-                IconButton(
-                  tooltip: 'الرفوف',
-                  icon: const Icon(Icons.shelves),
-                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ShelvesScreen())),
-                ),
-                IconButton(
-                  tooltip: 'تذكير ورد الكتب',
-                  icon: Icon(lib.reminder == null ? Icons.notifications_none : Icons.notifications_active_outlined),
-                  onPressed: () => _reminder(context),
-                ),
+            Headpiece(
+              title: 'المكتبة',
+              actions: [
+                HeadAction(Icons.shelves, 'الرفوف',
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ShelvesScreen()))),
+                HeadAction(lib.reminder == null ? Icons.notifications_none : Icons.notifications_active_outlined,
+                    'تذكير ورد الكتب', () => _reminder(context)),
               ],
             ),
+            const SizedBox(height: 4),
             const SizedBox(height: 10),
             if (lib.books.isEmpty && shelves.isEmpty)
               SectionCard(

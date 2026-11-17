@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import 'ornaments.dart';
 
 /// علامة ذِكرى: شريط علامة كتاب قمحي على مربع زيتوني، فيه نقطة الذال وكسرتها.
 class BrandMark extends StatelessWidget {
@@ -60,8 +61,13 @@ class Label extends StatelessWidget {
   const Label(this.text, {super.key});
 
   @override
-  Widget build(BuildContext context) =>
-      Text(text, style: TextStyle(fontSize: 14, color: Palette.of(context).muted, fontWeight: FontWeight.w500));
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
+        const Fleuron(size: 8),
+        const SizedBox(width: 7),
+        Flexible(
+          child: Text(text, style: TextStyle(fontSize: 14, color: Palette.of(context).muted, fontWeight: FontWeight.w500)),
+        ),
+      ]);
 }
 
 void toast(BuildContext context, String msg) {

@@ -10,6 +10,7 @@ import '../state/quran_review.dart';
 import '../theme.dart';
 import '../util/arabic.dart';
 import '../widgets/brand.dart';
+import '../widgets/ornaments.dart';
 import 'quran_notes.dart';
 import 'quran_reader.dart';
 import 'quran_setup.dart';
@@ -53,58 +54,44 @@ class _QuranTabState extends State<QuranTab> {
     return SafeArea(
       child: CustomScrollView(slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           sliver: SliverList.list(children: [
-            Row(children: [
-              Expanded(child: Text('المصحف', style: Theme.of(context).textTheme.titleLarge)),
-              IconButton(
-                tooltip: 'الغلطات والمتشابهات',
-                icon: const Icon(Icons.sticky_note_2_outlined),
-                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const QuranNotesScreen())),
-              ),
-              if (q.enabled)
-                IconButton(
-                  tooltip: 'إعدادات الورد',
-                  icon: const Icon(Icons.tune),
-                  onPressed: () => openQuranSetup(context),
-                ),
-            ]),
+            Headpiece(
+              title: 'المصحف',
+              actions: [
+                HeadAction(Icons.sticky_note_2_outlined, 'الغلطات والمتشابهات',
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const QuranNotesScreen()))),
+                if (q.enabled) HeadAction(Icons.tune, 'إعدادات الورد', () => openQuranSetup(context)),
+              ],
+            ),
+            const SizedBox(height: 6),
             const SizedBox(height: 10),
             if (!q.enabled) const _Intro() else const QuranTodayCard(),
             const SizedBox(height: 12),
-            SectionCard(
-              onTap: () => openMushaf(context, q.lastPage),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(children: [
-                const SizedBox(width: 30, child: Icon(Icons.bookmark_outline, color: AppColors.wheat)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('حيث توقفت', style: TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
-                    Text('صفحة ${q.lastPage} · سورة ${s.quranDb.suraOfPage(q.lastPage).name}',
-                        style: TextStyle(color: pal.muted, fontSize: 13)),
-                  ]),
-                ),
-                Icon(Icons.chevron_left, color: pal.muted),
-              ]),
-            ),
-            const SizedBox(height: 10),
-            SectionCard(
-              onTap: () => openMushaf(context, q.lastPage, listen: true),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(children: [
-                const SizedBox(width: 30, child: Icon(Icons.mic_none, color: AppColors.wheat)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('سمّع من أي موضع',
-                        style: TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
-                    Text('ابدأ القراءة، فتُفتح صفحتها ويتبعك وينبّهك على الخطأ',
-                        style: TextStyle(color: pal.muted, fontSize: 13)),
-                  ]),
-                ),
-                Icon(Icons.chevron_left, color: pal.muted),
-              ]),
+            // حيث توقفت والتسميع في لوح واحد بنصفين.
+            Card(
+              clipBehavior: Clip.antiAlias,
+              child: IntrinsicHeight(
+                child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Expanded(
+                    child: _HalfTile(
+                      icon: Icons.bookmark_outline,
+                      title: 'حيث توقفت',
+                      detail: 'ص ${q.lastPage} · ${s.quranDb.suraOfPage(q.lastPage).name}',
+                      onTap: () => openMushaf(context, q.lastPage),
+                    ),
+                  ),
+                  VerticalDivider(width: 1, indent: 12, endIndent: 12, color: pal.line),
+                  Expanded(
+                    child: _HalfTile(
+                      icon: Icons.mic_none,
+                      title: 'سمّع من حفظك',
+                      detail: 'يتبعك وينبّهك على الخطأ',
+                      onTap: () => openMushaf(context, q.lastPage, listen: true),
+                    ),
+                  ),
+                ]),
+              ),
             ),
             const SizedBox(height: 18),
             TextField(
@@ -129,13 +116,12 @@ class _QuranTabState extends State<QuranTab> {
               ),
             ),
             const SizedBox(height: 18),
-            Label(hits == null ? 'فهرس السور' : hits!.length >= 100 ? 'أول 100 آية' : '${hits!.length} آية'),
-            const SizedBox(height: 8),
+            SectionHead(hits == null ? 'فهرس السور' : hits!.length >= 100 ? 'أول 100 آية' : '${hits!.length} آية'),
           ]),
         ),
         if (hits != null)
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             sliver: SliverList.separated(
               itemCount: hits!.length,
               separatorBuilder: (_, _) => const SizedBox(height: 8),
@@ -156,7 +142,7 @@ class _QuranTabState extends State<QuranTab> {
           )
         else
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           sliver: SliverToBoxAdapter(
             child: Card(
               child: Column(children: [
@@ -165,17 +151,15 @@ class _QuranTabState extends State<QuranTab> {
                   InkWell(
                     onTap: () => openMushaf(context, sura.firstPage),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                       child: Row(children: [
-                        SizedBox(
-                          width: 34,
-                          child: Text('${sura.id}', style: TextStyle(fontFamily: readingFont, fontSize: 15, color: pal.muted)),
-                        ),
+                        Rosette('${sura.id}', size: 32),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: Text('سورة ${sura.name}',
                               style: const TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.4)),
                         ),
-                        Text('${sura.ayat} آية · ص ${sura.firstPage}', style: TextStyle(color: pal.muted, fontSize: 12.5)),
+                        Text('${sura.ayat} آية · ص ${sura.firstPage}', style: TextStyle(color: pal.muted, fontSize: 12.5, fontFeatures: const [FontFeature.tabularFigures()])),
                       ]),
                     ),
                   ),
@@ -327,3 +311,28 @@ Future<void> pickQuranReminder(BuildContext context) async {
 }
 
 String quranReminderLabel(QuranReview q) => q.reminder == null ? 'مطفأ' : formatTime(q.reminder!);
+
+class _HalfTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String detail;
+  final VoidCallback onTap;
+  const _HalfTile({required this.icon, required this.title, required this.detail, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Palette.of(context);
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(icon, color: AppColors.wheat, size: 22),
+          const SizedBox(height: 6),
+          Text(title, style: const TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.4)),
+          Text(detail, maxLines: 2, style: TextStyle(color: pal.muted, fontSize: 12.5, height: 1.5)),
+        ]),
+      ),
+    );
+  }
+}

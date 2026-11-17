@@ -7,6 +7,7 @@ import '../db/hadith_db.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../util/arabic.dart';
+import '../widgets/ornaments.dart';
 import 'reader.dart';
 
 /// تبويب الحديث: الكتاب الذي يقرؤه الآن من الكتب الستة، بفهرسه وبحثه.
@@ -65,27 +66,14 @@ class _HadithTabState extends State<HadithTab> {
     return SafeArea(
       child: Column(children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('الحديث', style: TextStyle(color: pal.muted, fontSize: 13)),
-            InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => _chooseCollection(context),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(children: [
-                  Flexible(
-                    child: Text(s.hadith.current.title,
-                        style: const TextStyle(fontFamily: readingFont, fontSize: 26, fontWeight: FontWeight.w700, height: 1.35)),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(Icons.expand_more, color: pal.muted),
-                ]),
-              ),
+            Headpiece(
+              title: s.hadith.current.title,
+              titleDropdown: true,
+              onTitleTap: () => _chooseCollection(context),
+              subtitle: 'وصلت إلى الحديث ${s.position.clamp(1, s.hadith.total)} من ${s.hadith.total}',
             ),
-            Text(
-                'وصلت إلى الحديث ${s.position.clamp(1, s.hadith.total)} من ${s.hadith.total}',
-                style: TextStyle(color: pal.muted, fontSize: 13)),
             const SizedBox(height: 12),
             TextField(
               controller: _q,
@@ -113,7 +101,8 @@ class _HadithTabState extends State<HadithTab> {
               : ListView(
                   padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
                   children: [
-                    // فهرس الكتب كفهرس كتاب مطبوع: سطور يفصلها خط رفيع، والرقم بخط النسخ.
+                    const SectionHead('فهرس الكتب'),
+                    // فهرس الكتب كفهرس كتاب مطبوع: سطور يفصلها خط رفيع، والرقم في نجمة.
                     Card(
                       child: Column(children: [
                         for (final b in s.hadith.books) ...[
@@ -191,13 +180,10 @@ class _BookRow extends StatelessWidget {
                 border: const BorderDirectional(start: BorderSide(color: AppColors.wheat, width: 3)),
               )
             : null,
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        padding: const EdgeInsets.fromLTRB(12, 10, 16, 10),
         child: Row(children: [
-          SizedBox(
-            width: 34,
-            child: Text('${b.id}',
-                style: TextStyle(fontFamily: readingFont, fontSize: 17, color: here ? AppColors.olive : pal.muted)),
-          ),
+          Rosette('${b.id}', size: 34, active: here),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('كتاب ${b.title}', style: const TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.4)),

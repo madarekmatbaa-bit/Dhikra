@@ -7,6 +7,7 @@ import '../db/user_db.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/brand.dart';
+import '../widgets/ornaments.dart';
 import 'benefit_edit.dart';
 
 /// قارئ الحديث: حديث بعد حديث، مع تحديد النص وحفظه فائدة.
@@ -161,19 +162,24 @@ class _HadithPage extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.fromLTRB(22, 18, 22, 40),
           children: [
-            // رأس الحديث كما في الكتب المطبوعة: اسم الكتاب ورقم الحديث، وخط رفيع.
-            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text('${h.number}',
-                  style: const TextStyle(fontFamily: readingFont, fontSize: 24, fontWeight: FontWeight.w700, color: AppColors.wheat, height: 1.2)),
-              const SizedBox(width: 10),
+            // رأس الحديث كما في الكتب المطبوعة: رقمه في نجمة، واسم الكتاب، وخطان رفيعان.
+            Row(children: [
+              Rosette('${h.number}', size: 50, active: true),
+              const SizedBox(width: 12),
               Expanded(
-                child: Text(s.hadith.current.title,
-                    style: TextStyle(fontFamily: readingFont, fontSize: 14, color: pal.muted, height: 1.4)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(s.hadith.current.title,
+                      style: const TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.4)),
+                  Text('كتاب ${s.hadith.bookOf(h.number).title}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13, color: pal.muted, height: 1.4)),
+                ]),
               ),
             ]),
-            const SizedBox(height: 8),
-            Divider(height: 1, color: pal.line),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            const DoubleRule(),
+            const SizedBox(height: 18),
             if (h.mergedInto != null)
               SectionCard(
                 color: pal.highlight,
@@ -217,6 +223,17 @@ class _HadithPage extends StatelessWidget {
                   );
                 },
               ),
+            // علامة نهاية الحديث، كالزخرفة التي تختم الفقرات في الكتب المطبوعة.
+            const Padding(
+              padding: EdgeInsets.only(top: 22),
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Fleuron(size: 7),
+                SizedBox(width: 8),
+                Fleuron(size: 13),
+                SizedBox(width: 8),
+                Fleuron(size: 7),
+              ]),
+            ),
           ],
         );
       },

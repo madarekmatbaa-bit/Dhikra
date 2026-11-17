@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'widgets/ornaments.dart';
+
 /// ألوان ذِكرى: الغالب فاتح، والأخضر والقمحي للأزرار والتقدم والتمييز فقط.
 class AppColors {
   static const olive = Color(0xFF3F5A44);
@@ -119,7 +121,8 @@ ThemeData buildTheme(Brightness brightness) {
       foregroundColor: ink,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
-      scrolledUnderElevation: 0.5,
+      scrolledUnderElevation: 0,
+      shape: RuledBottomBorder(accent: AppColors.wheat, line: palette.line),
       centerTitle: false,
       // عناوين الصفحات بخط النسخ كعناوين الكتب، والواجهة بخط Readex.
       titleTextStyle: TextStyle(fontFamily: readingFont, fontSize: 22, fontWeight: FontWeight.w700, color: ink, height: 1.4),
@@ -129,7 +132,8 @@ ThemeData buildTheme(Brightness brightness) {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: palette.line)),
+      // إطار كإطار صفحة الكتاب: خط خارجي وخط ذهبي داخلي ومعيّنات في الزوايا.
+      shape: BookFrameBorder(line: palette.line, accent: AppColors.wheat),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
