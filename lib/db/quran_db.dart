@@ -117,6 +117,14 @@ class QuranDb {
     return s;
   }
 
+  Future<Aya?> ayaById(int id) async {
+    final rows = await _db.query('ayat', where: 'id = ?', whereArgs: [id]);
+    if (rows.isEmpty) return null;
+    final r = rows.first;
+    return Aya(r['id'] as int, r['sura'] as int, r['aya'] as int, r['page'] as int, r['juz'] as int, r['text'] as String,
+        plain: r['plain'] as String);
+  }
+
   /// بحث بسيط في النص المجرد من التشكيل.
   Future<List<Aya>> search(String q, {int limit = 60}) async {
     final n = normalizeArabic(q);
@@ -124,7 +132,8 @@ class QuranDb {
     final rows = await _db.query('ayat', where: 'plain LIKE ?', whereArgs: ['%$n%'], limit: limit, orderBy: 'id');
     return [
       for (final r in rows)
-        Aya(r['id'] as int, r['sura'] as int, r['aya'] as int, r['page'] as int, r['juz'] as int, r['text'] as String),
+        Aya(r['id'] as int, r['sura'] as int, r['aya'] as int, r['page'] as int, r['juz'] as int, r['text'] as String,
+            plain: r['plain'] as String),
     ];
   }
 }

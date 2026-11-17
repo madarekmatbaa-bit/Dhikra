@@ -161,14 +161,19 @@ class _HadithPage extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.fromLTRB(22, 18, 22, 40),
           children: [
-            Row(children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                decoration: BoxDecoration(color: pal.soft, borderRadius: BorderRadius.circular(10)),
-                child: Text('حديث ${h.number}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+            // رأس الحديث كما في الكتب المطبوعة: اسم الكتاب ورقم الحديث، وخط رفيع.
+            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text('${h.number}',
+                  style: const TextStyle(fontFamily: readingFont, fontSize: 24, fontWeight: FontWeight.w700, color: AppColors.wheat, height: 1.2)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(s.hadith.current.title,
+                    style: TextStyle(fontFamily: readingFont, fontSize: 14, color: pal.muted, height: 1.4)),
               ),
             ]),
-            const SizedBox(height: 18),
+            const SizedBox(height: 8),
+            Divider(height: 1, color: pal.line),
+            const SizedBox(height: 16),
             if (h.mergedInto != null)
               SectionCard(
                 color: pal.highlight,
@@ -178,10 +183,10 @@ class _HadithPage extends StatelessWidget {
                 ),
               )
             else
-              SelectableText(
-                h.text,
+              SelectableText.rich(
+                _isnadAndMatn(h.text, pal.muted),
                 textAlign: TextAlign.justify,
-                style: TextStyle(fontFamily: readingFont, fontSize: s.fontSize, height: 1.9),
+                style: TextStyle(fontFamily: readingFont, fontSize: s.fontSize, height: 1.9, color: Theme.of(context).colorScheme.onSurface),
                 contextMenuBuilder: (context, state) {
                   final v = state.textEditingValue;
                   final selected = v.selection.textInside(v.text).trim();
@@ -217,4 +222,15 @@ class _HadithPage extends StatelessWidget {
       },
     );
   }
+}
+
+/// يفصل الإسناد عن المتن: ما قبل أول اقتباس (حدثنا فلان عن فلان) بلون أخفّ وأصغر قليلاً،
+/// والمتن بلون النص، كما تفعل طبعات الحديث المحققة.
+TextSpan _isnadAndMatn(String text, Color muted) {
+  final i = text.indexOf(RegExp('["«]'));
+  if (i < 25 || i > text.length - 10) return TextSpan(text: text);
+  return TextSpan(children: [
+    TextSpan(text: text.substring(0, i), style: TextStyle(color: muted.withValues(alpha: 0.95))),
+    TextSpan(text: text.substring(i)),
+  ]);
 }

@@ -103,6 +103,11 @@ class RecitationTracker {
   }
 
   int get length => _words.length;
+
+  /// الأخطاء مقرونة بمفتاح مقطعها والكلمة الصحيحة (الإملائية)، مرتبة.
+  List<(int, String)> get mistakeWords => [
+        for (final k in mistakes.toList()..sort()) (_keys[_wordSeg[k]], _words[k]),
+      ];
   bool get finished => pos >= _words.length;
 
   /// مفتاح المقطع الذي يقرؤه الآن (آخر مقطع إن انتهت الصفحة).

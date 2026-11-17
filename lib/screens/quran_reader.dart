@@ -68,6 +68,16 @@ class _QuranReaderState extends State<QuranReader> {
   int _phrasePage = 0;
   int _mistakeCount = 0;
 
+  /// أخطاء التسميع كله عبر الصفحات: رقم الآية العام ← كلماتها.
+  final _session = <int, Set<String>>{};
+  final _sessionStart = DateTime.now();
+
+  void _collect(RecitationTracker t) {
+    for (final (key, word) in t.mistakeWords) {
+      if (key > 0) _session.putIfAbsent(key, () => {}).add(word);
+    }
+  }
+
   /// اختبار الحفظ: يُخفى النص وتظهر كل كلمة حين يقرؤها القارئ.
   bool hideText = false;
 
@@ -195,11 +205,16 @@ class _QuranReaderState extends State<QuranReader> {
   Future<void> _toggleFollow() async {
     if (following) {
       await _listener.stop();
+      await Future.delayed(const Duration(milliseconds: 700)); // النتيجة النهائية الأخيرة
+      if (!mounted) return;
+      final t = _tracker;
+      if (t != null) _collect(t);
       setState(() {
         following = false;
         hideText = false;
         _currentKey = null;
       });
+      if (_session.isNotEmpty && mounted) await _showSummary();
       return;
     }
     final q = _q;
@@ -236,7 +251,102 @@ class _QuranReaderState extends State<QuranReader> {
     setState(() => following = true);
   }
 
+  /// ملخص التسميع: الآيات التي أخطأ فيها وكلماتها، مع حفظها في دفتر الغلطات.
+  Future<void> _showSummary() async {
+    final db = context.read<AppState>().quranDb;
+    final ids = _session.keys.toList()..sort();
+    final ayat = <Aya>[];
+    for (final id in ids) {
+      final a = await db.ayaById(id);
+      if (a != null) ayat.add(a);
+    }
+    if (!mounted || ayat.isEmpty) return;
+    final minutes = DateTime.now().difference(_sessionStart).inMinutes;
+    final save = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (c) {
+        final pal = Palette.of(c);
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(c).height * 0.75),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 12),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('ملخص التسميع', style: TextStyle(fontFamily: readingFont, fontSize: 21, fontWeight: FontWeight.w700)),
+                Text(
+                  'أخطأت في ${ayat.length == 1 ? 'آية واحدة' : ayat.length == 2 ? 'آيتين' : '${ayat.length} آيات'}'
+                  '${minutes > 0 ? ' خلال $minutes دقيقة' : ''}. راجعها قبل أن تنتقل.',
+                  style: TextStyle(color: pal.muted, fontSize: 14),
+                ),
+                const SizedBox(height: 10),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: ayat.length,
+                    separatorBuilder: (_, _) => Divider(height: 1, color: pal.line),
+                    itemBuilder: (c, i) {
+                      final a = ayat[i];
+                      return InkWell(
+                        onTap: () {
+                          Navigator.pop(c);
+                          _go(a.page);
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text('سورة ${db.suras[a.sura - 1].name} · الآية ${a.aya} · ص ${a.page}',
+                                style: TextStyle(color: pal.muted, fontSize: 12.5)),
+                            const SizedBox(height: 2),
+                            Text(QuranDb.stripNumber(a.text),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontFamily: quranFont, fontSize: 19, height: 1.8)),
+                            Text('الكلمات: ${_session[a.id]!.join('، ')}',
+                                style: const TextStyle(color: mistakeColor, fontSize: 13.5, fontWeight: FontWeight.w500)),
+                          ]),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.pop(c, true),
+                      icon: const Icon(Icons.sticky_note_2_outlined),
+                      label: const Text('احفظها في دفتر الغلطات'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton(onPressed: () => Navigator.pop(c, false), child: const Text('لاحقاً')),
+                ]),
+              ]),
+            ),
+          ),
+        );
+      },
+    );
+    if (save != true || !mounted) return;
+    final q = context.read<AppState>().quran;
+    final now = DateTime.now().toIso8601String();
+    for (final a in ayat) {
+      await q.saveNote(QuranNote(
+        sura: a.sura,
+        aya: a.aya,
+        kind: 'mistake',
+        note: 'من التسميع: ${_session[a.id]!.join('، ')}',
+        createdAt: now,
+      ));
+    }
+    _session.clear();
+    if (mounted) toast(context, 'حُفظت في دفتر الغلطات');
+  }
+
   Future<void> _buildTracker(int p, {int? startKey}) async {
+    final old = _tracker;
+    if (old != null) _collect(old);
     final db = context.read<AppState>().quranDb;
     final ayat = await db.page(p);
     final segs = <RecitedSegment>[];
@@ -271,6 +381,7 @@ class _QuranReaderState extends State<QuranReader> {
       final pt = _phraseTracker!;
       final r = pt.replayFinal(alternatives);
       fresh = r.$2;
+      _collect(pt);
       _pageStates[_phrasePage] = pt.wordStates;
       _phraseTracker = null;
       if (!identical(pt, t)) {
@@ -288,6 +399,7 @@ class _QuranReaderState extends State<QuranReader> {
     _pageStates[page] = t!.wordStates;
     if (t.finished && page < quranPages) {
       // انتهت الصفحة: نقلبها ونكمل بما بقي من العبارة نفسها.
+      _collect(t);
       _tracker = null;
       _pc.nextPage(duration: const Duration(milliseconds: 450), curve: Curves.easeInOut);
       setState(() {});

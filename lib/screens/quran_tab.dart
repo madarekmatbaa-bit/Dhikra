@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../db/quran_db.dart';
 import '../services/notifications.dart';
 import '../state/app_state.dart';
 import '../state/quran_review.dart';
@@ -11,8 +14,36 @@ import 'quran_notes.dart';
 import 'quran_reader.dart';
 import 'quran_setup.dart';
 
-class QuranTab extends StatelessWidget {
+class QuranTab extends StatefulWidget {
   const QuranTab({super.key});
+
+  @override
+  State<QuranTab> createState() => _QuranTabState();
+}
+
+class _QuranTabState extends State<QuranTab> {
+  final _q = TextEditingController();
+  Timer? _debounce;
+  List<Aya>? hits;
+
+  @override
+  void dispose() {
+    _q.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _onChanged(String v) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () async {
+      if (v.trim().length < 2) {
+        if (mounted) setState(() => hits = null);
+        return;
+      }
+      final r = await context.read<AppState>().quranDb.search(v, limit: 100);
+      if (mounted && _q.text == v) setState(() => hits = r);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,11 +88,55 @@ class QuranTab extends StatelessWidget {
                 Icon(Icons.chevron_left, color: pal.muted),
               ]),
             ),
-            const SizedBox(height: 22),
-            const Label('فهرس السور'),
+            const SizedBox(height: 18),
+            TextField(
+              controller: _q,
+              onChanged: (v) {
+                setState(() {});
+                _onChanged(v);
+              },
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'ابحث في القرآن بكلمة أو أكثر',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _q.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () {
+                          _q.clear();
+                          setState(() => hits = null);
+                        },
+                      ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Label(hits == null ? 'فهرس السور' : hits!.length >= 100 ? 'أول 100 آية' : '${hits!.length} آية'),
             const SizedBox(height: 8),
           ]),
         ),
+        if (hits != null)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+            sliver: SliverList.separated(
+              itemCount: hits!.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (c, i) {
+                final a = hits![i];
+                return SectionCard(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                  onTap: () => openMushaf(context, a.page, sura: a.sura, aya: a.aya),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('سورة ${s.quranDb.suras[a.sura - 1].name} · الآية ${a.aya} · ص ${a.page}',
+                        style: TextStyle(color: pal.muted, fontSize: 12.5)),
+                    Text(QuranDb.stripNumber(a.text),
+                        style: const TextStyle(fontFamily: quranFont, fontSize: 20, height: 1.9)),
+                  ]),
+                );
+              },
+            ),
+          )
+        else
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
           sliver: SliverToBoxAdapter(

@@ -22,6 +22,7 @@ class RecitationListener {
   void Function(double level)? onLevel;
 
   bool _newPhrase = true;
+  String _locale = 'ar_SA';
 
   /// يعيد رسالة خطأ إن تعذّر البدء، أو null إن بدأ.
   Future<String?> start() async {
@@ -30,10 +31,21 @@ class RecitationListener {
       if (!_ready) return 'خدمة التعرّف على الكلام غير متاحة في هذا الهاتف، أو لم تأذن بالميكروفون.';
     }
     final locales = await _stt.locales();
-    final hasArabic = locales.any((l) => l.localeId.toLowerCase().startsWith('ar'));
-    if (locales.isNotEmpty && !hasArabic) {
+    final arabic = [for (final l in locales) if (l.localeId.toLowerCase().startsWith('ar')) l.localeId];
+    if (locales.isNotEmpty && arabic.isEmpty) {
       return 'لا تدعم خدمة التعرّف في هاتفك العربية. ثبّت تطبيق Google وأضف العربية من إعدادات الكتابة الصوتية.';
     }
+    // الفصحى السعودية أقرب لهجة إلى التلاوة، ثم المصرية والإماراتية، ثم أي عربية متاحة.
+    String norm(String id) => id.replaceAll('-', '_').toLowerCase();
+    _locale = 'ar_SA';
+    for (final want in const ['ar_sa', 'ar_eg', 'ar_ae', 'ar_jo', 'ar']) {
+      final hit = arabic.where((id) => norm(id) == want).firstOrNull;
+      if (hit != null) {
+        _locale = hit;
+        break;
+      }
+    }
+    if (arabic.isNotEmpty && !arabic.contains(_locale)) _locale = arabic.first;
     active = true;
     await WakelockPlus.enable();
     await _listen();
@@ -44,7 +56,8 @@ class RecitationListener {
     active = false;
     _restart?.cancel();
     await WakelockPlus.disable();
-    if (_ready) await _stt.cancel();
+    // stop لا cancel: تصل النتيجة النهائية للعبارة الأخيرة فتُحسب أخطاؤها.
+    if (_ready) await _stt.stop();
   }
 
   Future<void> _listen() async {
@@ -64,7 +77,7 @@ class RecitationListener {
         },
         onSoundLevelChange: (l) => onLevel?.call(l),
         listenOptions: SpeechListenOptions(
-          localeId: 'ar_SA',
+          localeId: _locale,
           partialResults: true,
           listenMode: ListenMode.dictation,
           cancelOnError: false,

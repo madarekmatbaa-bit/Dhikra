@@ -140,7 +140,7 @@ class SettingsScreen extends StatelessWidget {
           _Group(children: [
             ListTile(
               leading: const BrandMark(size: 34),
-              title: Text('ذِكرى · الإصدار 0.7${appBuild > 0 ? ' · نسخة $appBuild' : ''}'),
+              title: Text('ذِكرى · الإصدار 0.8${appBuild > 0 ? ' · نسخة $appBuild' : ''}'),
               subtitle: const Text(
                   'نص القرآن وخطه من مجمع الملك فهد لطباعة المصحف الشريف. '
                   'نصوص الكتب الستة من مجموعات بيانات مفتوحة مأخوذة عن موقع sunnah.com (hadith-api وhadith-json)، والبخاري بترقيم فتح الباري. '
