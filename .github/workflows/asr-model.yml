@@ -1,0 +1,102 @@
+name: نموذج التسميع
+
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['tools/asr/**', '.github/workflows/asr-model.yml', 'android/app/src/main/cpp/dhikra_asr.*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  model:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: الأدوات
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q transformers huggingface_hub numpy
+          git clone -q --depth 1 https://github.com/openai/whisper /tmp/openai-whisper
+          git clone -q --depth 1 https://github.com/ggml-org/whisper.cpp /tmp/whisper.cpp
+          cmake -S /tmp/whisper.cpp -B /tmp/wbuild -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_TESTS=OFF > /dev/null
+          cmake --build /tmp/wbuild -j 4 --target whisper-cli whisper-quantize > /dev/null
+          ls /tmp/wbuild/bin
+
+      - name: تحويل النماذج
+        run: |
+          mkdir -p out
+          for size in tiny base; do
+            python -c "from huggingface_hub import snapshot_download as s; s('tarteel-ai/whisper-$size-ar-quran', local_dir='/tmp/hf-$size')"
+            mkdir -p /tmp/g-$size
+            python /tmp/whisper.cpp/models/convert-h5-to-ggml.py /tmp/hf-$size /tmp/openai-whisper /tmp/g-$size
+            cp /tmp/g-$size/ggml-model.bin out/quran-$size-f16.bin
+            for q in q8_0 q5_1; do
+              /tmp/wbuild/bin/whisper-quantize out/quran-$size-f16.bin out/quran-$size-$q.bin $q > /dev/null
+            done
+          done
+          ls -la out
+          (cd out && sha256sum *.bin > SHA256SUMS && cat SHA256SUMS)
+
+      - name: تلاوات للاختبار
+        run: |
+          mkdir -p samples
+          while read reciter ayat; do
+            files=""
+            for a in $ayat; do
+              curl -sSfL "https://everyayah.com/data/$reciter/$a.mp3" -o "/tmp/$reciter-$a.mp3"
+              ffmpeg -loglevel error -y -i "/tmp/$reciter-$a.mp3" -ar 16000 -ac 1 -c:a pcm_s16le "samples/$reciter-$a.wav"
+              files="$files samples/$reciter-$a.wav"
+            done
+            # مقطع طويل متصل من آيات متتالية، كما يقرأ المستخدم.
+            sox_list=$(for f in $files; do echo "file '$PWD/$f'"; done)
+            echo "$sox_list" > /tmp/list.txt
+            ffmpeg -loglevel error -y -f concat -safe 0 -i /tmp/list.txt -c copy "samples/$reciter-all.wav"
+          done < tools/asr/samples.txt
+          ls samples | wc -l
+
+      - name: اختبار الدقة والسرعة
+        run: |
+          {
+          echo "## نتائج النماذج"
+          for m in tiny-q8_0 tiny-q5_1 base-q8_0 base-q5_1 base-f16; do
+            echo "### $m ($(du -h out/quran-$m.bin | cut -f1))"
+            for f in samples/*-all.wav samples/*001001.wav samples/*002002.wav; do
+              [ -f "$f" ] || continue
+              start=$(date +%s.%N)
+              txt=$(/tmp/wbuild/bin/whisper-cli -m out/quran-$m.bin -l ar -t 4 -nt -np -f "$f" 2>/dev/null | tr '\n' ' ')
+              end=$(date +%s.%N)
+              dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$f")
+              printf -- "- %s (%.1fs صوت، %.1fs معالجة): %s\n" "$(basename $f .wav)" "$dur" "$(echo "$end - $start" | bc)" "$txt"
+            done
+            # بنافذة أقصر من 30 ثانية، كما سيعمل على الهاتف لعبارات قصيرة.
+            for ac in 512 768; do
+              f=samples/Alafasy_128kbps-001002.wav
+              start=$(date +%s.%N)
+              txt=$(/tmp/wbuild/bin/whisper-cli -m out/quran-$m.bin -l ar -t 4 -nt -np -ac $ac -f "$f" 2>/dev/null | tr '\n' ' ')
+              end=$(date +%s.%N)
+              printf -- "- ac=%s %s (%.1fs): %s\n" "$ac" "$(basename $f .wav)" "$(echo "$end - $start" | bc)" "$txt"
+            done
+          done
+          } | tee -a "$GITHUB_STEP_SUMMARY" results.md
+
+      - name: عيّنات صوتية للاختبار
+        run: tar czf samples.tgz samples
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: asr-1
+          name: نموذج التسميع القرآني
+          prerelease: true
+          body: نماذج Whisper معدّلة على تلاوة القرآن (Tarteel) بصيغة whisper.cpp. ينزّلها التطبيق تلقائياً.
+          files: |
+            out/quran-tiny-q8_0.bin
+            out/quran-tiny-q5_1.bin
+            out/quran-base-q8_0.bin
+            out/quran-base-q5_1.bin
+            out/SHA256SUMS
+            results.md
+            samples.tgz
