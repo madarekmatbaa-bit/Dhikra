@@ -30,49 +30,102 @@ class QuranAsrModel {
 
   static Future<bool> installed() async => File(await path()).existsSync();
 
+  static const sizeBytes = 59707625;
+
   /// ينزّل النموذج مع تقدّم من 0 إلى 1. يعيد رسالة خطأ أو null.
-  static Future<String?> download(void Function(double progress) onProgress, {bool Function()? cancelled}) async {
-    final dest = await path();
+  ///
+  /// إن انقطع الاتصال (وهو كثير على الشبكة الخلوية) أكمل من حيث وقف بطلب جزئي،
+  /// ويعيد المحاولة وحده مرات قبل أن يعرض خطأً. وما نُزّل يبقى، فالمحاولة التالية تكمل منه.
+  static Future<String?> download(void Function(double progress) onProgress,
+      {bool Function()? cancelled,
+      String? from,
+      String? to,
+      int expectedSize = sizeBytes,
+      String expectedSha = sha256Hex,
+      Duration retryDelay = const Duration(seconds: 2)}) async {
+    final dest = to ?? await path();
     await Directory(p.dirname(dest)).create(recursive: true);
     final part = File('$dest.part');
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
-    try {
-      final req = await client.getUrl(Uri.parse(url));
-      final res = await req.close();
-      if (res.statusCode != 200) return 'تعذّر تنزيل النموذج (${res.statusCode}).';
-      final total = res.contentLength;
-      final sink = part.openWrite();
-      final hasher = AccumulatorSink<Digest>();
-      final hash = sha256.startChunkedConversion(hasher);
-      var got = 0;
-      await for (final chunk in res) {
-        if (cancelled?.call() ?? false) {
-          await sink.close();
-          await part.delete();
-          return 'أُلغي التنزيل.';
+    var failures = 0;
+    var sawNetwork = false;
+    while (true) {
+      if (cancelled?.call() ?? false) return 'أُلغي التنزيل، وما نُزّل محفوظ يكمل منه لاحقاً.';
+      var have = part.existsSync() ? part.lengthSync() : 0;
+      if (have > expectedSize) {
+        await part.delete();
+        have = 0;
+      }
+      if (have < expectedSize) {
+        final r = await _fetch(from ?? url, part, have, expectedSize, onProgress, cancelled);
+        if (r == _Fetch.cancelled) return 'أُلغي التنزيل، وما نُزّل محفوظ يكمل منه لاحقاً.';
+        if (r == _Fetch.progressed) failures = 0;
+        if (r == _Fetch.offline) sawNetwork = false;
+        if (r == _Fetch.online) sawNetwork = true;
+        if (r != _Fetch.done) {
+          failures++;
+          if (failures > 6) {
+            return sawNetwork || part.existsSync() && part.lengthSync() > 0
+                ? 'انقطع التنزيل أكثر من مرة. ما نُزّل محفوظ، فاضغط «حاول مرة أخرى» ليكمل من حيث وقف.'
+                : 'لا يوجد اتصال بالإنترنت. يلزم الاتصال مرة واحدة لتنزيل النموذج.';
+          }
+          await Future.delayed(retryDelay * failures);
+          continue;
         }
-        sink.add(chunk);
-        hash.add(chunk);
-        got += chunk.length;
-        if (total > 0) onProgress(got / total);
       }
-      await sink.close();
-      hash.close();
-      if (total > 0 && got != total) {
-        await part.delete();
-        return 'انقطع التنزيل، حاول مرة أخرى.';
-      }
-      if (sha256Hex.isNotEmpty && hasher.events.single.toString() != sha256Hex) {
-        await part.delete();
-        return 'وصل الملف تالفاً، حاول مرة أخرى.';
+      // اكتمل: نتحقق من سلامة الملف قبل اعتماده.
+      if (expectedSha.isNotEmpty) {
+        final path = part.path;
+        final digest = await Isolate.run(() => sha256.convert(File(path).readAsBytesSync()).toString());
+        if (digest != expectedSha) {
+          await part.delete();
+          return 'وصل الملف تالفاً فحُذف. حاول مرة أخرى.';
+        }
       }
       await part.rename(dest);
+      onProgress(1);
       return null;
+    }
+  }
+
+  static Future<_Fetch> _fetch(String url, File part, int have, int total, void Function(double) onProgress,
+      bool Function()? cancelled) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 20)
+      ..idleTimeout = const Duration(seconds: 20);
+    IOSink? sink;
+    var got = have;
+    try {
+      final req = await client.getUrl(Uri.parse(url));
+      if (have > 0) req.headers.set(HttpHeaders.rangeHeader, 'bytes=$have-');
+      final res = await req.close().timeout(const Duration(seconds: 30));
+      if (have > 0 && res.statusCode == 200) {
+        // الخادم لم يقبل الإكمال: نبدأ من أول الملف.
+        got = 0;
+        sink = part.openWrite();
+      } else if (res.statusCode == 206 || res.statusCode == 200) {
+        sink = part.openWrite(mode: FileMode.append);
+      } else if (res.statusCode == 416) {
+        await part.delete();
+        return _Fetch.online;
+      } else {
+        return _Fetch.online;
+      }
+      onProgress(got / total);
+      await for (final chunk in res.timeout(const Duration(seconds: 30))) {
+        if (cancelled?.call() ?? false) return _Fetch.cancelled;
+        sink.add(chunk);
+        got += chunk.length;
+        onProgress((got / total).clamp(0, 1));
+      }
+      return got >= total ? _Fetch.done : (got > have ? _Fetch.progressed : _Fetch.online);
     } on SocketException {
-      return 'لا يوجد اتصال بالإنترنت. يلزم الاتصال مرة واحدة لتنزيل النموذج.';
-    } catch (e) {
-      return 'تعذّر تنزيل النموذج: $e';
+      return got > have ? _Fetch.progressed : _Fetch.offline;
+    } catch (_) {
+      // انقطاع أثناء الاستلام أو مهلة: ما وصل محفوظ، ونكمل في المحاولة التالية.
+      return got > have ? _Fetch.progressed : _Fetch.online;
     } finally {
+      await sink?.flush();
+      await sink?.close();
       client.close(force: true);
     }
   }
@@ -306,10 +359,4 @@ class QuranAsrListener implements ReciteListener {
   static void unload() => _engine.dispose();
 }
 
-class AccumulatorSink<T> implements Sink<T> {
-  final events = <T>[];
-  @override
-  void add(T event) => events.add(event);
-  @override
-  void close() {}
-}
+enum _Fetch { done, progressed, online, offline, cancelled }

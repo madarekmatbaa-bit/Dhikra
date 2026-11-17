@@ -67,7 +67,12 @@ class _DownloadSheetState extends State<_DownloadSheet> {
           if (busy) ...[
             LinearProgressIndicator(value: progress == 0 ? null : progress, minHeight: 6, borderRadius: BorderRadius.circular(3)),
             const SizedBox(height: 8),
-            Text('${((progress ?? 0) * 100).round()}%', style: TextStyle(color: pal.muted, fontSize: 13)),
+            Text(
+              '${((progress ?? 0) * QuranAsrModel.sizeBytes / 1048576).round()} من ${(QuranAsrModel.sizeBytes / 1048576).round()} ميغابايت'
+              '${(progress ?? 0) >= 1 ? ' · نتحقق من سلامة الملف…' : ''}',
+              style: TextStyle(color: pal.muted, fontSize: 13),
+            ),
+            Text('إن انقطع الاتصال أكمل التنزيل وحده من حيث وقف.', style: TextStyle(color: pal.muted, fontSize: 12.5)),
             const SizedBox(height: 8),
             Align(
               alignment: AlignmentDirectional.centerEnd,
