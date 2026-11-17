@@ -10,6 +10,7 @@ import '../services/qibla.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/brand.dart';
+import '../widgets/ornaments.dart';
 import 'prayer_settings.dart';
 
 void openPrayerSettings(BuildContext context) =>
@@ -25,17 +26,15 @@ class PrayerTab extends StatelessWidget {
     final cfg = s.prayerConfig;
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         children: [
-          Row(children: [
-            Expanded(child: Text('الصلاة', style: Theme.of(context).textTheme.titleLarge)),
-            IconButton(
-              tooltip: 'المدينة وطريقة الحساب والتنبيهات',
-              icon: const Icon(Icons.tune),
-              onPressed: () => openPrayerSettings(context),
-            ),
-          ]),
-          const SizedBox(height: 10),
+          Headpiece(
+            title: 'الصلاة',
+            actions: [
+              HeadAction(Icons.tune, 'المدينة وطريقة الحساب والتنبيهات', () => openPrayerSettings(context)),
+            ],
+          ),
+          const SizedBox(height: 14),
           if (cfg == null) const PrayerTimesCard() else ...[
             _TimesTable(cfg: cfg),
             const SizedBox(height: 16),
@@ -161,16 +160,28 @@ class _TimesTableState extends State<_TimesTable> {
     final times = cfg.timesFor(now);
     final (nextS, nextT) = cfg.next(now);
     final alerts = s.prayerAlerts;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // الصلاة القادمة كعنوان الصفحة.
-      Text('الصلاة القادمة', style: TextStyle(color: pal.muted, fontSize: 13)),
-      Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
-        Text(salahNames[nextS]!,
-            style: const TextStyle(fontFamily: readingFont, fontSize: 34, fontWeight: FontWeight.w700, height: 1.35)),
-        const SizedBox(width: 12),
-        Text(clock12(nextT), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w500)),
-      ]),
-      Text('${untilText(nextT.difference(now))} · ${cfg.place}', style: TextStyle(color: pal.muted, fontSize: 14)),
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      // الصلاة القادمة داخل محراب: قوس مدبّب بإطارين.
+      CustomPaint(
+        painter: MihrabPainter(
+          line: AppColors.wheat,
+          fill: Theme.of(context).colorScheme.surface,
+          pattern: AppColors.wheat.withValues(alpha: 0.32),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(28, 70, 28, 26),
+          child: Column(children: [
+            Text('الصلاة القادمة', style: TextStyle(color: pal.muted, fontSize: 13)),
+            Text(salahNames[nextS]!,
+                style: const TextStyle(fontFamily: readingFont, fontSize: 38, fontWeight: FontWeight.w700, height: 1.35)),
+            Text(clock12(nextT), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w500, height: 1.3)),
+            const SizedBox(height: 10),
+            const SizedBox(width: 120, child: DoubleRule()),
+            const SizedBox(height: 8),
+            Text('${untilText(nextT.difference(now))} · ${cfg.place}', style: TextStyle(color: pal.muted, fontSize: 14)),
+          ]),
+        ),
+      ),
       const SizedBox(height: 14),
       SectionCard(
         padding: EdgeInsets.zero,

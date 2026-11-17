@@ -16,6 +16,7 @@ import '../theme.dart';
 import '../util/quran_locator.dart';
 import '../util/recitation.dart';
 import '../widgets/brand.dart';
+import '../widgets/ornaments.dart';
 import '../widgets/sura_header.dart';
 import 'asr_download.dart';
 import 'benefit_edit.dart';
@@ -1317,48 +1318,13 @@ class _QuranPageViewState extends State<QuranPageView> {
   }
 }
 
-/// إطار الصفحة: خطان رفيعان وزخرفة صغيرة في الزوايا.
+/// إطار الصفحة: حاشية مزخرفة بين خطين كإطار المصحف المطبوع (مرسومة في ornaments.dart).
 class PageFramePainter extends CustomPainter {
   final Color color;
   PageFramePainter({required this.color});
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final outer = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6;
-    final inner = Paint()
-      ..color = color.withValues(alpha: 0.7)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8;
-    final r1 = Offset.zero & size;
-    final r2 = r1.deflate(5);
-    canvas.drawRRect(RRect.fromRectAndRadius(r1.deflate(0.8), const Radius.circular(6)), outer);
-    canvas.drawRRect(RRect.fromRectAndRadius(r2, const Radius.circular(4)), inner);
-    final fill = Paint()..color = color;
-    for (final c in [r2.topLeft, r2.topRight, r2.bottomLeft, r2.bottomRight]) {
-      final p = Path();
-      const d = 5.0;
-      p
-        ..moveTo(c.dx, c.dy - d)
-        ..lineTo(c.dx + d, c.dy)
-        ..lineTo(c.dx, c.dy + d)
-        ..lineTo(c.dx - d, c.dy)
-        ..close();
-      canvas.drawPath(p, fill);
-    }
-    // معيّنات صغيرة في منتصف الأضلاع
-    final mids = [
-      Offset(size.width / 2, r2.top),
-      Offset(size.width / 2, r2.bottom),
-      Offset(r2.left, size.height / 2),
-      Offset(r2.right, size.height / 2),
-    ];
-    for (final c in mids) {
-      canvas.drawCircle(c, 2.6, fill);
-    }
-  }
+  void paint(Canvas canvas, Size size) => paintPageFrame(canvas, size, color);
 
   @override
   bool shouldRepaint(covariant PageFramePainter old) => old.color != color;

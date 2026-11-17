@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import 'ornaments.dart';
 
 /// ترويسة السورة كما في المصاحف المطبوعة: لوحة بإطار مزدوج، في وسطها اسم السورة،
 /// وعلى جانبيها جامتان مزخرفتان فيهما رقم السورة وعدد آياتها.
@@ -49,13 +50,20 @@ class SuraHeader extends StatelessWidget {
       child: SizedBox(
         height: h,
         child: CustomPaint(
-          painter: SuraHeaderPainter(fill: pal.soft, line: AppColors.wheat, medal: medal),
+          painter: SuraHeaderPainter(
+            fill: pal.soft,
+            paper: Theme.of(context).colorScheme.surface,
+            line: AppColors.wheat,
+            medal: medal,
+          ),
           child: Row(
             children: [
               SizedBox(width: h * 0.07),
               side('سورة', '$number'),
               Expanded(
-                child: Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: h * 0.62),
+                  child: Center(
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
@@ -63,6 +71,7 @@ class SuraHeader extends StatelessWidget {
                       style: TextStyle(fontFamily: quranFont, fontSize: fontSize, height: 1.3, color: ink),
                     ),
                   ),
+                ),
                 ),
               ),
               side('آياتها', '$ayat'),
@@ -77,9 +86,10 @@ class SuraHeader extends StatelessWidget {
 
 class SuraHeaderPainter extends CustomPainter {
   final Color fill;
+  final Color paper;
   final Color line;
   final double medal;
-  SuraHeaderPainter({required this.fill, required this.line, required this.medal});
+  SuraHeaderPainter({required this.fill, required this.paper, required this.line, required this.medal});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -87,60 +97,48 @@ class SuraHeaderPainter extends CustomPainter {
     final stroke = Paint()
       ..color = line
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
+      ..strokeWidth = 1.4;
     final thin = Paint()
       ..color = line.withValues(alpha: 0.75)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8;
+      ..strokeWidth = 0.7;
     final solid = Paint()..color = line;
-
-    // اللوحة: مستطيل نهايتاه مقوّستان للداخل كلوحات أسماء السور.
-    final band = Rect.fromLTWH(h * 0.5, h * 0.12, w - h, h * 0.76);
-    Path tablet(Rect r) {
-      final c = r.height * 0.32;
-      return Path()
-        ..moveTo(r.left + c, r.top)
-        ..lineTo(r.right - c, r.top)
-        ..quadraticBezierTo(r.right - c * 0.2, r.center.dy, r.right - c, r.bottom)
-        ..lineTo(r.left + c, r.bottom)
-        ..quadraticBezierTo(r.left + c * 0.2, r.center.dy, r.left + c, r.top)
-        ..close();
-    }
-
-    canvas.drawPath(tablet(band), Paint()..color = fill);
-    canvas.drawPath(tablet(band), stroke);
-    canvas.drawPath(tablet(band.deflate(3.5)), thin);
-
-    // جامتان على الطرفين: دائرة يحيط بها نجم ثماني.
     final cy = h / 2;
     final r = medal / 2;
-    for (final cx in [h * 0.07 + r, w - h * 0.07 - r]) {
-      final c = Offset(cx, cy);
-      final star = Path();
-      for (var i = 0; i < 16; i++) {
-        final a = i * math.pi / 8 - math.pi / 2;
-        final rad = i.isEven ? r : r * 0.82;
-        final p = c + Offset(math.cos(a) * rad, math.sin(a) * rad);
-        i == 0 ? star.moveTo(p.dx, p.dy) : star.lineTo(p.dx, p.dy);
-      }
-      star.close();
-      canvas.drawPath(star, Paint()..color = fill);
-      canvas.drawPath(star, stroke);
-      canvas.drawCircle(c, r * 0.68, thin);
+    final edge = h * 0.07;
+
+    // الشريط الكامل: لوحة طرفاها مقوّسان، يملؤها نقش هندسي خافت كترويسات المصاحف.
+    final band = Rect.fromLTWH(edge + r, h * 0.1, w - 2 * (edge + r), h * 0.8);
+    final bandPath = tabletPath(band, cut: 0.3);
+    canvas.drawPath(bandPath, Paint()..color = fill);
+    canvas.save();
+    canvas.clipPath(bandPath);
+    paintLattice(canvas, band, line.withValues(alpha: 0.4), cell: math.max(12, h * 0.36), stroke: 0.6);
+    canvas.restore();
+    canvas.drawPath(bandPath, stroke);
+    canvas.drawPath(tabletPath(band.deflate(3), cut: 0.3), thin);
+
+    // لوحة الاسم في الوسط على ورق صاف.
+    final name = Rect.fromLTRB(edge + medal + h * 0.42, h * 0.2, w - edge - medal - h * 0.42, h * 0.8);
+    if (name.width > 30) {
+      final np = tabletPath(name, cut: 0.45);
+      canvas.drawPath(np, Paint()..color = paper);
+      canvas.drawPath(np, stroke);
+      canvas.drawPath(tabletPath(name.deflate(2.6), cut: 0.45), thin);
+      canvas.drawPath(diamond(Offset(name.left - 4, cy), 2.6), solid);
+      canvas.drawPath(diamond(Offset(name.right + 4, cy), 2.6), solid);
     }
 
-    // نقاط زخرفية بين الجامتين واسم السورة
-    for (final x in [h * 0.07 + medal + h * 0.32, w - h * 0.07 - medal - h * 0.32]) {
-      final p = Path()
-        ..moveTo(x, cy - 4)
-        ..lineTo(x + 4, cy)
-        ..lineTo(x, cy + 4)
-        ..lineTo(x - 4, cy)
-        ..close();
-      canvas.drawPath(p, solid);
+    // جامتان على الطرفين: نجمة ثمانية من مربعين متراكبين، وفي وسطها دائرة.
+    for (final cx in [edge + r, w - edge - r]) {
+      final c = Offset(cx, cy);
+      canvas.drawPath(starOutline(c, r, inner: 0.924), Paint()..color = paper);
+      canvas.drawPath(rubStar(c, r), stroke);
+      canvas.drawCircle(c, r * 0.7, thin);
     }
   }
 
   @override
-  bool shouldRepaint(covariant SuraHeaderPainter old) => old.fill != fill || old.line != line || old.medal != medal;
+  bool shouldRepaint(covariant SuraHeaderPainter old) =>
+      old.fill != fill || old.paper != paper || old.line != line || old.medal != medal;
 }

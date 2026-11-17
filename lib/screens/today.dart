@@ -8,6 +8,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../util/arabic.dart';
 import '../widgets/brand.dart';
+import '../widgets/ornaments.dart';
 import 'adhkar_list.dart';
 import 'book_reader.dart';
 import 'prayer_tab.dart';
@@ -28,30 +29,18 @@ class TodayScreen extends StatelessWidget {
     final now = s.clock();
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         children: [
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  // التاريخ كرأس صفحة في دفتر: الهجري بخط النسخ، والميلادي تحته.
-                  Text(hijriLong(now), style: const TextStyle(fontFamily: readingFont, fontSize: 26, fontWeight: FontWeight.w700, height: 1.35)),
-                  Text(gregorianLong(now), style: TextStyle(color: pal.muted, fontSize: 14)),
-                ]),
-              ),
-            ),
-            IconButton(
-              tooltip: 'دفتر الفوائد',
-              icon: const Icon(Icons.bookmark_border),
-              onPressed: () => openBenefitsPage(context),
-            ),
-            IconButton(
-              tooltip: 'الإعدادات',
-              icon: const Icon(Icons.settings_outlined),
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
-            ),
-          ]),
+          // التاريخ في سرلوح الصفحة، كعنوان صفحة في مصحف أو كتاب مطبوع.
+          Headpiece(
+            title: hijriLong(now),
+            subtitle: gregorianLong(now),
+            actions: [
+              HeadAction(Icons.bookmark_border, 'دفتر الفوائد', () => openBenefitsPage(context)),
+              HeadAction(Icons.settings_outlined, 'الإعدادات',
+                  () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+            ],
+          ),
           const SizedBox(height: 18),
           if (s.update != null) ...[
             SectionCard(
@@ -68,13 +57,13 @@ class TodayScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
           ],
-          _SectionHead('وِرد اليوم', trailing: _doneSummary(s)),
+          SectionHead('وِرد اليوم', trailing: _doneSummary(s)),
           const _Ledger(),
           const SizedBox(height: 22),
-          _SectionHead('الصلاة', onMore: () => onOpenTab(3), more: 'المواقيت والقبلة'),
+          SectionHead('الصلاة', onMore: () => onOpenTab(3), more: 'المواقيت والقبلة'),
           PrayerTimesCard(onTap: () => onOpenTab(3)),
           const SizedBox(height: 22),
-          const _SectionHead('الأذكار'),
+          const SectionHead('الأذكار'),
           const _AdhkarRow(),
           const SizedBox(height: 22),
           _BenefitOfDay(onOpenTab: onOpenTab),
@@ -99,39 +88,6 @@ class TodayScreen extends StatelessWidget {
     }
     if (total == 0) return null;
     return done == total ? 'تمّ كله، تقبّل الله' : '$done من $total';
-  }
-}
-
-class _SectionHead extends StatelessWidget {
-  final String title;
-  final String? trailing;
-  final VoidCallback? onMore;
-  final String? more;
-  const _SectionHead(this.title, {this.trailing, this.onMore, this.more});
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = Palette.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-        Text(title, style: const TextStyle(fontFamily: readingFont, fontSize: 19, fontWeight: FontWeight.w700, height: 1.3)),
-        const SizedBox(width: 10),
-        Expanded(child: Padding(padding: const EdgeInsets.only(bottom: 7), child: Divider(height: 1, color: pal.line))),
-        if (trailing != null) ...[
-          const SizedBox(width: 10),
-          Text(trailing!, style: TextStyle(color: pal.muted, fontSize: 13)),
-        ],
-        if (onMore != null)
-          InkWell(
-            onTap: onMore,
-            child: Padding(
-              padding: const EdgeInsetsDirectional.only(start: 10, top: 2, bottom: 2),
-              child: Text(more ?? 'المزيد', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 13, fontWeight: FontWeight.w500)),
-            ),
-          ),
-      ]),
-    );
   }
 }
 
@@ -219,7 +175,7 @@ class _Ledger extends StatelessWidget {
     return Card(
       child: Column(children: [
         for (var i = 0; i < rows.length; i++) ...[
-          if (i > 0) Divider(height: 1, indent: 62, color: pal.line),
+          if (i > 0) Divider(height: 1, indent: 62, endIndent: 14, color: pal.line),
           rows[i],
         ],
       ]),
@@ -367,7 +323,7 @@ class _BenefitOfDay extends StatelessWidget {
     final pal = Palette.of(context);
     final b = s.benefitOfTheDay;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _SectionHead('من دفترك', onMore: () => openBenefitsPage(context), more: 'كل الفوائد'),
+      SectionHead('من دفترك', onMore: () => openBenefitsPage(context), more: 'كل الفوائد'),
       InkWell(
         onTap: () => Navigator.push(
             context, MaterialPageRoute(builder: (_) => b == null ? const BenefitEditScreen() : BenefitEditScreen(benefit: b))),
@@ -409,7 +365,7 @@ class _AdhkarRow extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
             child: Column(children: [
-              Icon(done ? Icons.check_circle : Icons.circle_outlined, color: done ? AppColors.sage : pal.line, size: 20),
+              _DoneStar(done: done),
               const SizedBox(height: 6),
               Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: done ? pal.muted : null)),
             ]),
@@ -431,6 +387,23 @@ class _AdhkarRow extends StatelessWidget {
           cell(AdhkarSet.sleep, 'النوم'),
         ]),
       ),
+    );
+  }
+}
+
+/// نجمة ثمانية: مفرغة قبل الذكر، وممتلئة بعلامة صح بعده.
+class _DoneStar extends StatelessWidget {
+  final bool done;
+  const _DoneStar({required this.done});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 24,
+      child: Stack(alignment: Alignment.center, children: [
+        Fleuron(size: 24, filled: done, color: done ? AppColors.sage : AppColors.wheat),
+        if (done) const Icon(Icons.check, size: 13, color: Colors.white),
+      ]),
     );
   }
 }
