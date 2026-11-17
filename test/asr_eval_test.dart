@@ -84,6 +84,7 @@ void main() {
         final heard = await e.transcribe(p) ?? '';
         final judge = PhraseJudge(heard, e.score);
         final hyp = await e.score(heard);
+        out.writeln('#phrase,$reciter,$id,${(p.length / 16000).toStringAsFixed(1)},${_csv(heard)}');
         for (final MapEntry(key: c, value: t) in trackers.entries) {
           t.beginPhrase();
           t.replayFinal([recitationWords(heard)], raw: judge.raw);

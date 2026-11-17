@@ -8,6 +8,9 @@ on:
     paths: ['tools/asr_eval/**', 'test/asr_eval_test.dart', '.github/workflows/asr-eval.yml']
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   eval:
     runs-on: ubuntu-latest
@@ -57,10 +60,28 @@ jobs:
             OUT=eval-${{ matrix.shard }}.csv flutter test test/asr_eval_test.dart --reporter expanded
           python3 tools/asr_eval/report.py eval-${{ matrix.shard }}.csv | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: تسجيلات الأخطاء الكاذبة
+        run: |
+          # التلاوات الصحيحة التي عُدّ فيها خطأ، لتُفحص واحدة واحدة.
+          mkdir -p bad
+          awk -F, '$3=="ok" && $6>=6 {print $1"-"$2}' eval-${{ matrix.shard }}.csv | sort -u | head -60 > bad.txt
+          python3 - <<'PY'
+          import sqlite3, shutil
+          c = sqlite3.connect('assets/data/quran.db')
+          for l in open('bad.txt'):
+              r, i = l.strip().rsplit('-', 1)
+              s, a = c.execute('select sura, aya from ayat where id=?', (int(i),)).fetchone()
+              shutil.copy(f'/tmp/wav/{r}-{s:03d}{a:03d}.wav', 'bad/')
+          PY
+          tar czf bad-${{ matrix.shard }}.tgz bad
+          ls bad | wc -l
+
       - uses: actions/upload-artifact@v4
         with:
           name: eval-${{ matrix.shard }}
-          path: eval-${{ matrix.shard }}.csv
+          path: |
+            eval-${{ matrix.shard }}.csv
+            bad-${{ matrix.shard }}.tgz
 
   report:
     needs: eval
@@ -73,4 +94,14 @@ jobs:
           path: res
           merge-multiple: true
       - name: الملخص
-        run: python3 tools/asr_eval/report.py res/*.csv | tee -a "$GITHUB_STEP_SUMMARY"
+        run: python3 tools/asr_eval/report.py res/*.csv | tee -a "$GITHUB_STEP_SUMMARY" report.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: asr-eval
+          name: تقييم التسميع
+          prerelease: true
+          body: نتائج تقييم متابعة التلاوة على تسجيلات القرّاء، وتسجيلات الأخطاء الكاذبة للفحص.
+          files: |
+            res/*.csv
+            res/*.tgz
+            report.md

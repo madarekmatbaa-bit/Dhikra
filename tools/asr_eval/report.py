@@ -9,6 +9,8 @@ for path in sys.argv[1:]:
             continue
         if r[0] == '#total':
             ayat += int(r[1]); words += int(r[2])
+        elif r[0] == '#phrase':
+            continue
         elif r[0] == '#case':
             cases[r[1]] += 1; reached[r[1]] += int(r[3])
         else:
@@ -35,3 +37,11 @@ print()
 print('### أخطاء حقيقية لم تُلتقط بحدّ 6')
 for r in [r for r in rows if r['truth'] and r['delta'] < 6][:40]:
     print(f'- {r["reciter"]} {r["aya"]} [{r["cond"]}] {r["kind"]} Δ={r["delta"]:.1f}: سُمع «{r["heard"]}» والمنتظر «{r["want"]}»')
+
+print()
+print('### الأخطاء الكاذبة في التلاوة الصحيحة لكل قارئ (بحدّ 6)')
+per = collections.Counter(r['reciter'] for r in rows if r['cond'] == 'ok' and r['delta'] >= 6)
+kinds = collections.Counter(r['kind'] for r in rows if r['cond'] == 'ok' and r['delta'] >= 6)
+for k, v in per.most_common():
+    print(f'- {k}: {v}')
+print('الأنواع:', dict(kinds))
