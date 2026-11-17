@@ -472,9 +472,10 @@ class PhraseJudge {
 
   double? _hyp;
 
-  /// الفرق (باللوغاريتم) الذي يلزم ليُعدّ الخطأ مؤكداً: نحو ست مرات أرجح لكلمة،
-  /// وأكثر للحركة لأن النموذج أقل يقيناً بالحركات.
-  static const wordMargin = 6.0, lettersMargin = 10.0, harakatMargin = 8.0;
+  /// الفرق (باللوغاريتم) الذي يلزم ليُعدّ الخطأ مؤكداً. اختير من تقييم 1260 آية لـ28 قارئاً
+  /// (asr-eval.yml): بهذه الحدود خطآن كاذبان لكل ألف كلمة، ويُلتقط 97% من الكلمات المبدلة
+  /// و99% من الساقطة و89% من الحرف المبدل.
+  static const wordMargin = 12.0, lettersMargin = 10.0, harakatMargin = 12.0;
 
   /// هل النص المصحَّح [corrected] أبعد احتمالاً مما سُمع بفارق [margin]؟
   Future<bool> confirms(String corrected, {double margin = wordMargin}) async {
