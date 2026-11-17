@@ -15,7 +15,7 @@ import 'prayer_settings.dart';
 void openPrayerSettings(BuildContext context) =>
     Navigator.push(context, MaterialPageRoute(builder: (_) => const PrayerSettingsScreen()));
 
-/// تبويب الصلاة: مواقيت اليوم كاملة، والقبلة بالبوصلة.
+/// تبويب الصلاة: مواقيت اليوم كاملة، ورابط صفحة القبلة.
 class PrayerTab extends StatelessWidget {
   const PrayerTab({super.key});
 
@@ -39,7 +39,7 @@ class PrayerTab extends StatelessWidget {
           if (cfg == null) const PrayerTimesCard() else ...[
             _TimesTable(cfg: cfg),
             const SizedBox(height: 16),
-            _QiblaCard(cfg: cfg),
+            _QiblaLink(cfg: cfg),
           ],
         ],
       ),
@@ -217,6 +217,49 @@ class _TimesTableState extends State<_TimesTable> {
   }
 }
 
+/// رابط القبلة في تبويب الصلاة. البوصلة لا تعمل إلا في صفحتها، فلا تستهلك البطارية.
+class _QiblaLink extends StatelessWidget {
+  final PrayerConfig cfg;
+  const _QiblaLink({required this.cfg});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Palette.of(context);
+    final b = qiblaBearing(cfg.lat, cfg.lng);
+    final km = distanceToKaaba(cfg.lat, cfg.lng);
+    return SectionCard(
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => QiblaScreen(cfg: cfg))),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(children: [
+        const SizedBox(width: 30, child: Icon(Icons.explore_outlined, color: AppColors.wheat)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('القبلة', style: TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
+            Text('${b.round()}° من الشمال · ${km.round()} كم إلى مكة', style: TextStyle(color: pal.muted, fontSize: 13)),
+          ]),
+        ),
+        Icon(Icons.chevron_left, color: pal.muted),
+      ]),
+    );
+  }
+}
+
+/// صفحة القبلة: تشغّل البوصلة حين تُفتح، وتوقفها حين تُغلق أو يذهب التطبيق إلى الخلفية.
+class QiblaScreen extends StatelessWidget {
+  final PrayerConfig cfg;
+  const QiblaScreen({super.key, required this.cfg});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('القبلة')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
+          children: [_QiblaCard(cfg: cfg)],
+        ),
+      );
+}
+
 class _QiblaCard extends StatefulWidget {
   final PrayerConfig cfg;
   const _QiblaCard({required this.cfg});
@@ -225,7 +268,7 @@ class _QiblaCard extends StatefulWidget {
   State<_QiblaCard> createState() => _QiblaCardState();
 }
 
-class _QiblaCardState extends State<_QiblaCard> {
+class _QiblaCardState extends State<_QiblaCard> with WidgetsBindingObserver {
   final _compass = Compass();
   StreamSubscription<double>? _sub;
   double? heading;
@@ -236,6 +279,7 @@ class _QiblaCardState extends State<_QiblaCard> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _compass.start();
     _sub = _compass.headings.listen((h) {
       if (!mounted) return;
@@ -258,7 +302,17 @@ class _QiblaCardState extends State<_QiblaCard> {
   double _diff(double h) => ((bearing - h + 540) % 360) - 180;
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _compass.start();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      _compass.stop();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _sensorCheck?.cancel();
     _sub?.cancel();
     _compass.dispose();

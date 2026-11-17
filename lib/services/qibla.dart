@@ -39,6 +39,7 @@ class Compass {
   Stream<double> get headings => _out.stream;
 
   void start() {
+    if (_a != null) return;
     const period = Duration(milliseconds: 40);
     _a = accelerometerEventStream(samplingPeriod: period).listen((e) {
       _g = _lowPass([e.x, e.y, e.z], _g, 0.15);
