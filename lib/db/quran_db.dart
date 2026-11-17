@@ -125,6 +125,12 @@ class QuranDb {
         plain: r['plain'] as String);
   }
 
+  /// كل الآيات (رقمها وصفحتها ونصها الإملائي)، لمعرفة موضع القارئ من كلماته.
+  Future<List<(int, int, String)>> allPlain() async {
+    final rows = await _db.query('ayat', columns: ['id', 'page', 'plain'], orderBy: 'id');
+    return [for (final r in rows) (r['id'] as int, r['page'] as int, r['plain'] as String)];
+  }
+
   /// بحث بسيط في النص المجرد من التشكيل.
   Future<List<Aya>> search(String q, {int limit = 60}) async {
     final n = normalizeArabic(q);

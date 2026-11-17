@@ -7,13 +7,16 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../db/quran_db.dart';
+import '../services/quran_asr.dart';
 import '../services/recitation_listener.dart';
 import '../state/app_state.dart';
 import '../state/quran_review.dart';
 import '../theme.dart';
+import '../util/quran_locator.dart';
 import '../util/recitation.dart';
 import '../widgets/brand.dart';
 import '../widgets/sura_header.dart';
+import 'asr_download.dart';
 import 'benefit_edit.dart';
 
 /// قارئ المصحف: صفحة بصفحة كترتيب مصحف المدينة (604 صفحات).
@@ -31,6 +34,9 @@ class QuranReader extends StatefulWidget {
 
   /// يُستدعى بزر «أتممت الورد» في آخر صفحة منه.
   final Future<void> Function()? onFinishPortion;
+
+  /// يبدأ الاستماع فور الفتح، وينتقل إلى حيث يقرأ القارئ في المصحف كله.
+  final bool listenAnywhere;
   const QuranReader({
     super.key,
     required this.page,
@@ -39,6 +45,7 @@ class QuranReader extends StatefulWidget {
     this.portion,
     this.portionTitle,
     this.onFinishPortion,
+    this.listenAnywhere = false,
   });
 
   @override
@@ -56,7 +63,7 @@ class _QuranReaderState extends State<QuranReader> {
   double? _lastFitFont;
 
   // متابعة التلاوة
-  final _listener = RecitationListener();
+  ReciteListener _listener = RecitationListener();
   bool following = false;
   RecitationTracker? _tracker;
   int? _currentKey;
@@ -91,10 +98,19 @@ class _QuranReaderState extends State<QuranReader> {
         if (mounted) context.read<AppState>().quran.notePage(page);
       });
     }
-    _listener
+    _wire(_listener);
+    if (widget.listenAnywhere) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _toggleFollow();
+      });
+    }
+  }
+
+  void _wire(ReciteListener l) {
+    l
       ..onWords = _onWords
-      ..onLevel = (l) {
-        if (mounted && following) setState(() => _level = l);
+      ..onLevel = (v) {
+        if (mounted && following) setState(() => _level = v);
       }
       ..onFatal = (m) {
         if (!mounted) return;
@@ -103,9 +119,38 @@ class _QuranReaderState extends State<QuranReader> {
       };
   }
 
+  bool get _wholePhrases => _listener is QuranAsrListener;
+
+  /// يختار المحرّك: نموذج التلاوة على الهاتف إن كان منزّلاً (أو نزّله المستخدم الآن)، وإلا Google.
+  Future<bool> _pickEngine() async {
+    final q = _q;
+    var useModel = q.useQuranModel;
+    if (useModel && !await QuranAsrModel.installed()) {
+      if (!mounted) return false;
+      final r = await downloadQuranModel(context);
+      if (r == null) return false; // أغلق النافذة
+      useModel = r;
+      if (!r) await q.setUseQuranModel(false);
+    }
+    final want = useModel ? 'model' : 'google';
+    final have = _listener is QuranAsrListener ? 'model' : 'google';
+    if (want != have) {
+      final old = _listener;
+      if (old is QuranAsrListener) old.dispose();
+      _listener = useModel ? QuranAsrListener() : RecitationListener();
+      _wire(_listener);
+    }
+    return true;
+  }
+
   @override
   void dispose() {
-    _listener.stop();
+    final l = _listener;
+    if (l is QuranAsrListener) {
+      l.dispose();
+    } else {
+      l.stop();
+    }
     _alert.dispose();
     if (fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _pc.dispose();
@@ -228,9 +273,9 @@ class _QuranReaderState extends State<QuranReader> {
             'يلوّن الكلمة التي وصلت إليها، ويمرّر الصفحة ويقلبها معك. '
             'وإن أبدلت كلمة أو أسقطتها ظهرت بالأحمر مع نغمة تنبيه.\n\n'
             'ولمراجعة الحفظ اضغط زر العين فيُخفى النص، وتظهر كل كلمة حين تقرؤها.\n\n'
-            'يبدأ من أول الصفحة، وإن بدأت من موضع آخر فاضغط على الآية التي تقرؤها.\n\n'
-            'تعتمد المتابعة على خدمة التعرّف على الكلام في هاتفك (من Google عادة)، وقد ترسل الصوت إليها لتحويله إلى كلمات. '
-            'ولا يُحفظ الصوت في التطبيق. الميزة تجريبية، وقد تتأخر أو تخطئ أحياناً.',
+            'ابدأ من أي موضع في المصحف، فيعرف التطبيق الآية من أول كلماتك وينتقل إلى صفحتها.\n\n'
+            'يسمعك نموذج مدرَّب على تلاوة القرآن يعمل على هاتفك بلا إنترنت، ولا يخرج صوتك منه ولا يُحفظ. '
+            'يُنزَّل مرة واحدة (نحو ${QuranAsrModel.approxMb} ميغابايت). ويحكم على كل عبارة بعد وقفتك، فقف قليلاً بين الآيات.',
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')),
@@ -241,6 +286,8 @@ class _QuranReaderState extends State<QuranReader> {
       if (ok != true) return;
       await q.setFollowIntroSeen();
     }
+    if (!await _pickEngine() || !mounted) return;
+    _located = false;
     await _buildTracker(page);
     final err = await _listener.start();
     if (!mounted) return;
@@ -344,7 +391,13 @@ class _QuranReaderState extends State<QuranReader> {
     if (mounted) toast(context, 'حُفظت في دفتر الغلطات');
   }
 
-  Future<void> _buildTracker(int p, {int? startKey}) async {
+  Future<void> _buildTracker(int p, {int? startKey, int startWord = 0}) async {
+    final pending = _pendingStart;
+    if (pending != null && pending.page == p) {
+      _pendingStart = null;
+      startKey = pending.endAya;
+      startWord = pending.nextWord;
+    }
     final old = _tracker;
     if (old != null) _collect(old);
     final db = context.read<AppState>().quranDb;
@@ -356,8 +409,16 @@ class _QuranReaderState extends State<QuranReader> {
       }
       segs.add(RecitedSegment(a.id, a.plain, uthmani: QuranDb.stripNumber(a.text)));
     }
-    final t = RecitationTracker(segs)..strict = _q.strictLetters;
-    if (startKey != null) t.startAt(startKey);
+    final t = RecitationTracker(segs)
+      ..strict = _q.strictLetters
+      ..wholePhrases = _wholePhrases;
+    if (startKey != null) {
+      if (startWord > 0) {
+        t.startAtWord(startKey, startWord);
+      } else {
+        t.startAt(startKey);
+      }
+    }
     if (!mounted || p != page) return;
     setState(() {
       _tracker = t;
@@ -390,6 +451,12 @@ class _QuranReaderState extends State<QuranReader> {
         return;
       }
       _consumed = r.$1;
+      final words = alternatives.first;
+      if (!pt.matchedInPhrase && words.length >= 3) {
+        _locate(words, pt);
+      } else if (pt.matchedInPhrase) {
+        _located = true;
+      }
     } else if (t != null) {
       _consumed = t.feed(t.best(alternatives, _consumed), _consumed, markMistakes: false).$1;
     } else {
@@ -408,6 +475,45 @@ class _QuranReaderState extends State<QuranReader> {
     setState(() => _currentKey = t.currentKey);
   }
 
+  /// موضع القارئ إن لم يطابق ما قرأه الصفحة المفتوحة.
+  LocatedRecitation? _pendingStart;
+  bool _located = false;
+  bool _locating = false;
+
+  Future<void> _locate(List<String> words, RecitationTracker t) async {
+    if (_locating) return;
+    _locating = true;
+    try {
+      final loc = await context.read<AppState>().quranLocator();
+      final key = t.currentKey;
+      final hit = loc.locate(words, near: key != null && key > 0 ? loc.wordOfAya(key) : null);
+      if (hit == null || !mounted || !following) return;
+      final db = context.read<AppState>().quranDb;
+      final a = await db.ayaById(hit.endAya);
+      if (a == null || !mounted) return;
+      if (!_located || a.page != page) {
+        toast(context, 'سورة ${db.suras[a.sura - 1].name} · الآية ${a.aya}');
+      }
+      _located = true;
+      if (hit.page == page && identical(t, _tracker)) {
+        t.startAtWord(hit.endAya, hit.nextWord);
+        setState(() {
+          _currentKey = t.currentKey;
+          _pageStates[page] = t.wordStates;
+        });
+      } else {
+        _pendingStart = LocatedRecitation(hit.startAya, hit.endAya, hit.nextWord, a.page, hit.matched);
+        if (a.page == page) {
+          await _buildTracker(page);
+        } else {
+          _go(a.page);
+        }
+      }
+    } finally {
+      _locating = false;
+    }
+  }
+
   void _report(int fresh) {
     if (fresh <= 0) return;
     _mistakeCount += fresh;
@@ -422,6 +528,13 @@ class _QuranReaderState extends State<QuranReader> {
       _currentKey = t.currentKey;
       _pageStates[page] = t.wordStates;
     });
+  }
+
+  Future<void> _switchEngine(bool model) async {
+    final was = following;
+    if (was) await _toggleFollow();
+    await _q.setUseQuranModel(model);
+    if (was && mounted) await _toggleFollow();
   }
 
   Future<void> _toggleHide() async {
@@ -571,6 +684,8 @@ class _QuranReaderState extends State<QuranReader> {
                         _toggleHide();
                       case 'sound':
                         s.quran.setMistakeSound(!s.quran.mistakeSound);
+                      case 'engine':
+                        _switchEngine(!s.quran.useQuranModel);
                       case 'strict':
                         s.quran.setStrictLetters(!s.quran.strictLetters);
                         _tracker?.strict = s.quran.strictLetters;
@@ -587,6 +702,11 @@ class _QuranReaderState extends State<QuranReader> {
                       value: 'sound',
                       checked: s.quran.mistakeSound,
                       child: const Text('نغمة عند الخطأ'),
+                    ),
+                    CheckedPopupMenuItem(
+                      value: 'engine',
+                      checked: s.quran.useQuranModel,
+                      child: const Text('نموذج التلاوة (بلا إنترنت)'),
                     ),
                     CheckedPopupMenuItem(
                       value: 'strict',

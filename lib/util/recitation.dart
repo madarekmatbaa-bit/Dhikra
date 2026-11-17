@@ -87,6 +87,11 @@ class RecitationTracker {
   /// التشديد في الحروف: تُعدّ الكلمة المقروءة بحرف مختلف خطأً.
   bool strict = true;
 
+  /// العبارات تأتي كاملة من نموذج التلاوة بعد كل وقفة، لا مقطوعة كما في خدمة Google:
+  /// فتُعدّ الكلمات التي تخطاها القارئ في أول العبارة، والكلمة الأخيرة المبدلة في آخرها.
+  bool wholePhrases = false;
+  bool _everMatched = false;
+
   /// بدائل العبارة الحالية، ليُتحقق منها قبل عدّ كلمة خطأً.
   List<List<String>> _alts = const [];
 
@@ -141,6 +146,20 @@ class RecitationTracker {
     });
   }
 
+  /// هل طابق شيء من العبارة الأخيرة نصَّ الصفحة؟ إن لم يطابق فلعل القارئ في موضع آخر.
+  bool get matchedInPhrase => _matchedInPhrase;
+
+  /// يضع الموضع عند الكلمة [word] من المقطع [key]، بعد أن عُرف موضع القارئ من كلماته.
+  void startAtWord(int key, int word) {
+    final seg = _keys.indexOf(key);
+    if (seg < 0) return;
+    final i = _wordSeg.indexOf(seg);
+    if (i < 0) return;
+    pos = (i + word).clamp(0, _words.length);
+    _matchedInPhrase = true;
+    _everMatched = true;
+  }
+
   /// يبدأ المتابعة من أول مقطع مفتاحه [key].
   void startAt(int key) {
     final seg = _keys.indexOf(key);
@@ -149,6 +168,7 @@ class RecitationTracker {
     if (i >= 0) {
       pos = i;
       _matchedInPhrase = false;
+      _everMatched = false;
     }
   }
 
@@ -165,13 +185,14 @@ class RecitationTracker {
         if (markMistakes && strict && _wrongLetters(heard[i], pos) && mistakes.add(pos)) newMistakes++;
         pos++;
         i++;
-        _matchedInPhrase = true;
+        _matchedInPhrase = _everMatched = true;
         continue;
       }
       final jump = _findAhead(heard, i);
       if (jump != null) {
         final skipped = jump.$1 - jump.$2 - pos;
-        if (markMistakes && _matchedInPhrase && skipped <= 3) {
+        final inContext = _matchedInPhrase || wholePhrases && _everMatched;
+        if (markMistakes && inContext && skipped <= 3) {
           for (var k = pos; k < pos + skipped; k++) {
             // الأدوات القصيرة («من»، «لا») كثيراً ما يُسقطها التعرّف، فلا نعدّها خطأً.
             if (_words[k].length >= 3 && mistakes.add(k)) newMistakes++;
@@ -179,7 +200,7 @@ class RecitationTracker {
         }
         pos = jump.$1;
         i += jump.$2;
-        _matchedInPhrase = true;
+        _matchedInPhrase = _everMatched = true;
         continue;
       }
       final back = _findBehind(heard, i);
@@ -217,8 +238,33 @@ class RecitationTracker {
     mistakes
       ..clear()
       ..addAll(_phraseMistakes);
-    final r = feed(best(alternatives, 0), 0, alternatives: alternatives);
+    final heard = best(alternatives, 0);
+    var r = feed(heard, 0, alternatives: alternatives);
+    if (wholePhrases && _matchedInPhrase) r = (_finishTail(heard, r.$1), r.$2);
     return (r.$1, (mistakes.length - before).clamp(0, 1 << 20));
+  }
+
+  /// آخر العبارة لم يطابق النص ثم وقف القارئ: الكلمة المنتظرة أُبدلت (أو سقطت إن
+  /// طابق المسموع ما بعدها). تُعدّ خطأً ويمضي الموضع، فلا تعلق المتابعة عندها.
+  int _finishTail(List<String> heard, int i) {
+    var n = 0;
+    while (i < heard.length && !finished && n < 3) {
+      final w = heard[i];
+      if (w.length < 2) {
+        i++;
+        continue;
+      }
+      if (pos + 1 < _words.length && similarWord(w, _words[pos + 1])) {
+        if (_words[pos].length >= 3) mistakes.add(pos);
+        pos += 2;
+      } else {
+        mistakes.add(pos);
+        pos++;
+      }
+      i++;
+      n++;
+    }
+    return i;
   }
 
   /// كم كلمة من المسموع (بدءاً من [from]) تطابق كلمات قريبة أمام الموضع.
@@ -360,3 +406,6 @@ int _distance(String a, String b, int cap) {
   }
   return prev[b.length];
 }
+
+/// مفتاح الكلمة للبحث: هيكلها بلا حروف المد والهمزات.
+String wordKey(String s) => _skeleton(s);

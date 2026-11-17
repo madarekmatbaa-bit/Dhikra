@@ -140,6 +140,13 @@ class QuranReview {
     changed();
   }
 
+  /// محرّك التسميع: نموذج التلاوة على الهاتف (أدق، بلا إنترنت) أو خدمة Google.
+  bool get useQuranModel => _p.getBool('q_asr_model') ?? true;
+  Future<void> setUseQuranModel(bool v) async {
+    await _p.setBool('q_asr_model', v);
+    changed();
+  }
+
   bool get followIntroSeen => _p.getBool('q_follow_intro') ?? false;
   Future<void> setFollowIntroSeen() => _p.setBool('q_follow_intro', true);
 

@@ -7,12 +7,14 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../services/notifications.dart';
+import '../services/quran_asr.dart';
 import '../services/updates.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../util/arabic.dart';
 import '../widgets/brand.dart';
 import 'home_shell.dart';
+import 'asr_download.dart';
 import 'quran_tab.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -70,6 +72,14 @@ class SettingsScreen extends StatelessWidget {
               trailing: const Icon(Icons.chevron_left),
               onTap: () => openQuranSetup(context),
             ),
+            const Divider(),
+            SwitchListTile(
+              title: const Text('نموذج التلاوة للتسميع'),
+              subtitle: const Text('يسمعك على الهاتف بلا إنترنت، وهو أدق من خدمة Google'),
+              value: s.quran.useQuranModel,
+              onChanged: s.quran.setUseQuranModel,
+            ),
+            const _ModelTile(),
           ]),
           const _Head('تذكير ورد الحديث'),
           _Group(children: [
@@ -140,10 +150,11 @@ class SettingsScreen extends StatelessWidget {
           _Group(children: [
             ListTile(
               leading: const BrandMark(size: 34),
-              title: Text('ذِكرى · الإصدار 0.8${appBuild > 0 ? ' · نسخة $appBuild' : ''}'),
+              title: Text('ذِكرى · الإصدار 0.9${appBuild > 0 ? ' · نسخة $appBuild' : ''}'),
               subtitle: const Text(
                   'نص القرآن وخطه من مجمع الملك فهد لطباعة المصحف الشريف. '
                   'نصوص الكتب الستة من مجموعات بيانات مفتوحة مأخوذة عن موقع sunnah.com (hadith-api وhadith-json)، والبخاري بترقيم فتح الباري. '
+                  'نموذج التسميع Whisper معدّل على تلاوة القرآن من Tarteel، يعمل بمكتبة whisper.cpp. '
                   'يعمل التطبيق دون إنترنت، وكل بياناتك على جهازك.'),
               isThreeLine: true,
             ),
@@ -260,4 +271,53 @@ Future<void> checkUpdateInteractive(BuildContext context) async {
     ),
   );
   if (ok == true) await Updates.download(u);
+}
+
+/// حال نموذج التسميع على الهاتف، مع تنزيله أو حذفه.
+class _ModelTile extends StatefulWidget {
+  const _ModelTile();
+
+  @override
+  State<_ModelTile> createState() => _ModelTileState();
+}
+
+class _ModelTileState extends State<_ModelTile> {
+  bool? installed;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    final v = await QuranAsrModel.installed();
+    if (mounted) setState(() => installed = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final i = installed;
+    if (i == null) return const SizedBox.shrink();
+    return ListTile(
+      title: Text(i ? 'النموذج على الهاتف' : 'النموذج غير منزّل'),
+      subtitle: Text(i ? 'نحو ${QuranAsrModel.approxMb} ميغابايت' : 'يُنزَّل عند أول تسميع، أو الآن'),
+      trailing: i
+          ? TextButton(
+              onPressed: () async {
+                QuranAsrListener.unload();
+                await QuranAsrModel.remove();
+                _check();
+              },
+              child: const Text('احذفه'),
+            )
+          : TextButton(
+              onPressed: () async {
+                await downloadQuranModel(context);
+                _check();
+              },
+              child: const Text('نزّله'),
+            ),
+    );
+  }
 }

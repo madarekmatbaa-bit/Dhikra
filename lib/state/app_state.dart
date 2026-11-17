@@ -13,6 +13,7 @@ import '../services/notifications.dart';
 import '../services/prayer.dart';
 import '../services/updates.dart';
 import '../util/arabic.dart';
+import '../util/quran_locator.dart';
 import 'library.dart';
 import 'quran_review.dart';
 
@@ -30,6 +31,11 @@ class AppState extends ChangeNotifier {
   final adhkar = AdhkarData();
   final quranDb = QuranDb();
   late final SharedPreferences _prefs;
+
+  /// فهرس كلمات المصحف كله لمعرفة موضع القارئ، يُبنى عند أول حاجة إليه.
+  Future<QuranLocator>? _locator;
+  Future<QuranLocator> quranLocator() => _locator ??= quranDb.allPlain().then(QuranLocator.new);
+
   late final quran = QuranReview(
     db: quranDb,
     userDb: () => user.db,

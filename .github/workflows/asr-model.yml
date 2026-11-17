@@ -3,7 +3,7 @@ name: نموذج التسميع
 on:
   push:
     branches: ['claude/**']
-    paths: ['tools/asr/**', '.github/workflows/asr-model.yml', 'android/app/src/main/cpp/dhikra_asr.*']
+    paths: ['tools/asr/**']
   workflow_dispatch:
 
 permissions:

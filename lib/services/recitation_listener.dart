@@ -8,23 +8,40 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../util/recitation.dart';
 
-/// يستمع إلى التلاوة بخدمة التعرّف على الكلام في الهاتف، ويرسل كلمات كل عبارة.
-/// الخدمة تتوقف بعد كل سكتة، فنعيد تشغيلها ما دام المستخدم لم يوقف المتابعة.
-class RecitationListener {
-  final _stt = SpeechToText();
-  bool active = false;
-  bool _ready = false;
-  Timer? _restart;
+/// ما يسمع التلاوة ويرسل كلماتها: نموذج التلاوة على الهاتف، أو خدمة Google.
+abstract class ReciteListener {
+  bool get active;
 
   /// بدائل العبارة الحالية كاملة (أرجحها أولاً)، وهل هي عبارة جديدة، وهل النتيجة نهائية.
   void Function(List<List<String>> alternatives, bool newPhrase, bool isFinal)? onWords;
   void Function(String message)? onFatal;
   void Function(double level)? onLevel;
 
+  /// يعيد رسالة خطأ إن تعذّر البدء، أو null إن بدأ.
+  Future<String?> start();
+  Future<void> stop();
+}
+
+/// يستمع إلى التلاوة بخدمة التعرّف على الكلام في الهاتف، ويرسل كلمات كل عبارة.
+/// الخدمة تتوقف بعد كل سكتة، فنعيد تشغيلها ما دام المستخدم لم يوقف المتابعة.
+class RecitationListener implements ReciteListener {
+  final _stt = SpeechToText();
+  @override
+  bool active = false;
+  bool _ready = false;
+  Timer? _restart;
+
+  @override
+  void Function(List<List<String>> alternatives, bool newPhrase, bool isFinal)? onWords;
+  @override
+  void Function(String message)? onFatal;
+  @override
+  void Function(double level)? onLevel;
+
   bool _newPhrase = true;
   String _locale = 'ar_SA';
 
-  /// يعيد رسالة خطأ إن تعذّر البدء، أو null إن بدأ.
+  @override
   Future<String?> start() async {
     if (!_ready) {
       _ready = await _stt.initialize(onError: (e) => _onError(e.errorMsg, e.permanent), onStatus: _onStatus);
@@ -52,6 +69,7 @@ class RecitationListener {
     return null;
   }
 
+  @override
   Future<void> stop() async {
     active = false;
     _restart?.cancel();

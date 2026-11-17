@@ -1,7 +1,7 @@
 name: dhikra
 description: "ذِكرى: أوراد يومية من القرآن وصحيح البخاري وكتبك، مع الأذكار ودفتر للفوائد."
 publish_to: 'none'
-version: 0.8.0+9
+version: 0.9.0+10
 
 environment:
   sdk: ^3.13.7
@@ -32,6 +32,9 @@ dependencies:
   wakelock_plus: ^1.8.2
   audioplayers: ^6.8.1
   sensors_plus: ^7.1.1
+  record: ^7.2.0
+  ffi: ^2.1.4
+  crypto: ^3.0.6
 
 dev_dependencies:
   flutter_test:

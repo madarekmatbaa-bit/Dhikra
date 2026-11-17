@@ -88,6 +88,24 @@ class _QuranTabState extends State<QuranTab> {
                 Icon(Icons.chevron_left, color: pal.muted),
               ]),
             ),
+            const SizedBox(height: 10),
+            SectionCard(
+              onTap: () => openMushaf(context, q.lastPage, listen: true),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(children: [
+                const SizedBox(width: 30, child: Icon(Icons.mic_none, color: AppColors.wheat)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('سمّع من أي موضع',
+                        style: TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
+                    Text('ابدأ القراءة، فتُفتح صفحتها ويتبعك وينبّهك على الخطأ',
+                        style: TextStyle(color: pal.muted, fontSize: 13)),
+                  ]),
+                ),
+                Icon(Icons.chevron_left, color: pal.muted),
+              ]),
+            ),
             const SizedBox(height: 18),
             TextField(
               controller: _q,
@@ -172,7 +190,12 @@ class _QuranTabState extends State<QuranTab> {
 }
 
 void openMushaf(BuildContext context, int page,
-        {List<int>? portion, String? title, int? sura, int? aya, Future<void> Function()? onFinish}) =>
+        {List<int>? portion,
+        String? title,
+        int? sura,
+        int? aya,
+        Future<void> Function()? onFinish,
+        bool listen = false}) =>
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -183,6 +206,7 @@ void openMushaf(BuildContext context, int page,
           highlightSura: sura,
           highlightAya: aya,
           onFinishPortion: onFinish,
+          listenAnywhere: listen,
         ),
       ),
     );
