@@ -23,7 +23,7 @@ class SpeechSegmenter {
   SpeechSegmenter({
     required this.onPhrase,
     this.onLevel,
-    this.endSilence = const Duration(milliseconds: 420),
+    this.endSilence = const Duration(milliseconds: 600),
     this.maxPhrase = const Duration(seconds: 20),
     this.interimEvery = const Duration(milliseconds: 1000),
   });
@@ -75,6 +75,13 @@ class SpeechSegmenter {
       sum += v * v;
     }
     final rms = math.sqrt(sum / fr.length);
+    // الحروف المهموسة (س ص ش ف ث ح خ) خافتة لكنها كثيرة التذبذب: نعدّها كلاماً ولو
+    // خفتت، فلا تُقطع الكلمة عندها في التلاوة المتمهلة.
+    var crossings = 0;
+    for (var i = 1; i < fr.length; i++) {
+      if ((fr[i] >= 0) != (fr[i - 1] >= 0)) crossings++;
+    }
+    final hiss = crossings > fr.length * 0.22;
     // الضجيج: ينزل سريعاً إلى أهدأ ما سُمع، ويرتفع ببطء بإطارات قريبة منه فقط،
     // فلا يرفعه صوت القارئ نفسه مهما طالت قراءته.
     if (rms < _noise) {
@@ -88,7 +95,7 @@ class SpeechSegmenter {
     // ذروة العبارة: ما دون جزء صغير منها صدى أو نَفَس، لا قراءة.
     _peak = math.max(rms, _peak * 0.998);
     final threshold = math.max(math.max(_noise * 3.2, 0.006), _inSpeech ? _peak * 0.1 : 0);
-    final loud = rms > threshold;
+    final loud = rms > threshold || _inSpeech && hiss && rms > math.max(_noise * 2.2, 0.003);
     onLevel?.call((rms / (threshold * 4)).clamp(0.0, 1.0));
 
     if (!_inSpeech) {
@@ -127,7 +134,7 @@ class SpeechSegmenter {
 
     // النموذج أدق في عبارة قصيرة (آية أو بعضها)، فبعد ثماني ثوانٍ تكفي وقفة أقصر.
     final longPhrase = _frameEnergy.length > 400;
-    if (_silentFrames >= _endSilenceFrames || longPhrase && _silentFrames >= 16) {
+    if (_silentFrames >= _endSilenceFrames || longPhrase && _silentFrames >= 22) {
       // ننهي العبارة بعد السكتة، ونحذف معظمها من آخرها.
       final keep = _phrase.length - (_silentFrames - 8).clamp(0, _silentFrames) * _frame;
       _emitFinal(keep);

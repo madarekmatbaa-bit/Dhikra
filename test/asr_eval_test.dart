@@ -55,6 +55,14 @@ void main() {
         final ins = [...raw]..insert(at, _otherWord(vow, ids, rnd, recitationWords(raw[at]).join()));
         conds['skip'] = (ins.join(' '), _normIndex(ins, at));
       }
+      // حرف مبدل: «يعملون» مكتوبة والمقروء «تعملون». يُبدل أول حرف المضارعة في النص المنتظر.
+      final verbs = [for (final i in cand) if (RegExp('^[يتن][\u064e\u064f]').hasMatch(raw[i]) && recitationWords(raw[i]).join().length >= 5) i];
+      if (verbs.isNotEmpty) {
+        final at = verbs[rnd.nextInt(verbs.length)];
+        final other = (['ي', 'ت', 'ن']..remove(raw[at][0]))[rnd.nextInt(2)];
+        final let = [...raw]..[at] = other + raw[at].substring(1);
+        conds['letter'] = (let.join(' '), _normIndex(let, at));
+      }
       final trackers = <String, RecitationTracker>{};
       final offset = <String, int>{};
       for (final MapEntry(key: c, value: (t, _)) in conds.entries) {
@@ -80,26 +88,36 @@ void main() {
       seg.flush();
       audio += (b.length - 44) / 32000;
 
+      // الأخطاء المرشّحة لكل حالة: موضعها وفرق الاحتمال. لا يُكتب منها في النهاية إلا ما
+      // بقي خطأً بعد العبارة التالية (الكلمة المعلّقة في آخر العبارة قد تُرفع).
+      final found = {for (final c in conds.keys) c: <int, (double, MistakeInfo)>{}};
       for (final p in phrases) {
         final heard = await e.transcribe(p) ?? '';
         final judge = PhraseJudge(heard, e.score);
         final hyp = await e.score(heard);
         out.writeln('#phrase,$reciter,$id,${(p.length / 16000).toStringAsFixed(1)},${_csv(heard)}');
+        final scores = <String, double>{};
         for (final MapEntry(key: c, value: t) in trackers.entries) {
           t.beginPhrase();
           t.replayFinal([recitationWords(heard)], raw: judge.raw);
           for (final k in t.phraseMistakes) {
+            final w = t.why[k]!;
             final corrected = t.correctedPhrase(k);
-            final cs = corrected == null ? null : await e.score(corrected);
-            final delta = cs == null || cs > 0 || hyp > 0 ? 999.0 : hyp - cs;
-            final want = conds[c]!.$2;
-            final truth = want != null && k == offset[c]! + want;
-            final w = t.why[k];
-            out.writeln([
-              reciter, id, c, truth ? 1 : 0, w?.kind.name ?? '-', delta.toStringAsFixed(2),
-              _csv(w?.heard ?? ''), _csv(t.voweledAt(k)),
-            ].join(','));
+            final cs = corrected == null ? null : scores[corrected] ??= await e.score(corrected);
+            found[c]![k] = (cs == null || cs > 0 || hyp > 0 ? 999.0 : hyp - cs, w);
           }
+        }
+      }
+      for (final MapEntry(key: c, value: t) in trackers.entries) {
+        t.confirmTentative();
+        final want = conds[c]!.$2;
+        for (final MapEntry(key: k, value: (delta, w)) in found[c]!.entries) {
+          if (!t.mistakes.contains(k)) continue;
+          final truth = want != null && k == offset[c]! + want;
+          out.writeln([
+            reciter, id, c, truth ? 1 : 0, w.kind.name, delta.toStringAsFixed(2),
+            _csv(w.heard ?? ''), _csv(t.voweledAt(k)),
+          ].join(','));
         }
       }
       for (final c in conds.keys) {

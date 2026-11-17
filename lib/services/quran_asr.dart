@@ -334,6 +334,9 @@ class QuranAsrListener implements ReciteListener {
   /// نص المصحف الذي قرأه القارئ قبل العبارة، يُعطى للنموذج ليتّبع إملاءه.
   String Function()? context;
 
+  /// هل القارئ يتكلم الآن، أو ما زالت عبارة تُنسخ؟ (لا يُثبَّت خطأ معلّق قبل أن يسكت.)
+  bool get speaking => _seg.inSpeech || _busy || _finals.isNotEmpty;
+
   bool _busy = false;
   bool _phraseOpen = false;
   final _finals = <Float32List>[];
@@ -471,7 +474,7 @@ class PhraseJudge {
 
   /// الفرق (باللوغاريتم) الذي يلزم ليُعدّ الخطأ مؤكداً: نحو ست مرات أرجح لكلمة،
   /// وأكثر للحركة لأن النموذج أقل يقيناً بالحركات.
-  static const wordMargin = 6.0, harakatMargin = 8.0;
+  static const wordMargin = 6.0, lettersMargin = 10.0, harakatMargin = 8.0;
 
   /// هل النص المصحَّح [corrected] أبعد احتمالاً مما سُمع بفارق [margin]؟
   Future<bool> confirms(String corrected, {double margin = wordMargin}) async {

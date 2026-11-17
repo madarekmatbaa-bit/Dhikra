@@ -110,8 +110,9 @@ void main() {
     test('آخر كلمة في الآية مبدلة ثم وقف', () {
       final t = tracker()..startAt(4);
       t.beginPhrase();
-      final r = t.replayFinal([w('مالك يوم القيامه')]);
-      expect(r.$2, 1);
+      t.replayFinal([w('مالك يوم القيامه')]);
+      expect(t.mistakes, isEmpty, reason: 'تُعلَّق حتى يسكت القارئ');
+      expect(t.confirmTentative(), 1);
       expect(t.mistakeWords.single.$2, 'الدين');
       expect(t.currentKey, 5, reason: 'لا تعلق المتابعة عند الكلمة المبدلة');
     });

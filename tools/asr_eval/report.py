@@ -20,18 +20,21 @@ for path in sys.argv[1:]:
 print(f'## تقييم التسميع: {ayat} آية، {words} كلمة، {len({r["reciter"] for r in rows})} قارئاً')
 print(f'وصلت المتابعة إلى آخر الآية: {reached["ok"]} من {cases["ok"]}')
 print()
-print('| الحد | أخطاء كاذبة | لكل 1000 كلمة | التقاط المبدلة | التقاط الساقطة |')
-print('|---|---|---|---|---|')
+print('| الحد | أخطاء كاذبة (تلاوة صحيحة) | لكل 1000 كلمة | التقاط المبدلة | التقاط الساقطة | التقاط الحرف المبدل | حرف كاذب |')
+print('|---|---|---|---|---|---|---|')
 for m in [0, 2, 4, 6, 8, 10, 12, 15, 20, 30]:
     kept = [r for r in rows if r['delta'] >= m]
-    fp = sum(1 for r in kept if not r['truth'])
+    fp = sum(1 for r in kept if r['cond'] == 'ok')
+    let = sum(1 for r in kept if r['truth'] and r['cond'] == 'letter')
+    fpl = sum(1 for r in kept if r['cond'] == 'ok' and r['kind'] == 'letters')
     sub = sum(1 for r in kept if r['truth'] and r['cond'] == 'sub')
     skip = sum(1 for r in kept if r['truth'] and r['cond'] == 'skip')
     print(f'| {m} | {fp} | {1000 * fp / max(words, 1):.2f} | {sub}/{cases["sub"]} ({100 * sub / max(cases["sub"], 1):.0f}%)'
-          f' | {skip}/{cases["skip"]} ({100 * skip / max(cases["skip"], 1):.0f}%) |')
+          f' | {skip}/{cases["skip"]} ({100 * skip / max(cases["skip"], 1):.0f}%)'
+          f' | {let}/{cases["letter"]} ({100 * let / max(cases["letter"], 1):.0f}%) | {fpl} |')
 print()
 print('### الأخطاء الكاذبة في التلاوة الصحيحة (Δ ≥ 0)')
-for r in sorted((r for r in rows if not r['truth']), key=lambda r: -r['delta'])[:80]:
+for r in sorted((r for r in rows if r['cond'] == 'ok'), key=lambda r: -r['delta'])[:60]:
     print(f'- {r["reciter"]} {r["aya"]} [{r["cond"]}] {r["kind"]} Δ={r["delta"]:.1f}: سُمع «{r["heard"]}» والمنتظر «{r["want"]}»')
 print()
 print('### أخطاء حقيقية لم تُلتقط بحدّ 6')

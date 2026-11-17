@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
@@ -152,6 +153,7 @@ class _QuranReaderState extends State<QuranReader> {
     } else {
       l.stop();
     }
+    _tentativeTimer?.cancel();
     _alert.dispose();
     if (fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _pc.dispose();
@@ -254,7 +256,12 @@ class _QuranReaderState extends State<QuranReader> {
       await Future.delayed(const Duration(milliseconds: 700)); // النتيجة النهائية الأخيرة
       if (!mounted) return;
       final t = _tracker;
-      if (t != null) _collect(t);
+      _tentativeTimer?.cancel();
+      if (t != null) {
+        _mistakeCount += t.confirmTentative();
+        _pageStates[page] = t.wordStates;
+        _collect(t);
+      }
       setState(() {
         following = false;
         hideText = false;
@@ -464,18 +471,49 @@ class _QuranReaderState extends State<QuranReader> {
     final pt = _phraseTracker;
     if (pt == null) return;
     final r = pt.replayFinal([words], raw: judge.raw);
-    var fresh = 0;
+    // كل مجموعة كلمات عُدّت معاً تُتحقق مرة واحدة: إن لم يرجّح النموذج ما سمعه رُفعت كلها.
+    final checked = <int>{};
     for (final k in pt.phraseMistakes) {
+      final w = pt.why[k];
+      if (w == null || !checked.add(w.group)) continue;
       final corrected = pt.correctedPhrase(k);
-      final margin = pt.why[k]?.kind == MistakeKind.harakat ? PhraseJudge.harakatMargin : PhraseJudge.wordMargin;
-      if (corrected != null && !await judge.confirms(corrected, margin: margin)) {
-        pt.dismiss(k);
-      } else {
-        fresh++;
-      }
+      final margin = switch (w.kind) {
+        MistakeKind.harakat => PhraseJudge.harakatMargin,
+        MistakeKind.letters => PhraseJudge.lettersMargin,
+        _ => PhraseJudge.wordMargin,
+      };
+      if (corrected != null && !await judge.confirms(corrected, margin: margin)) pt.dismiss(k);
     }
     if (!mounted) return;
-    _afterFinal(pt, r.$1, r.$2 == 0 ? 0 : fresh, words);
+    final shown = pt.phraseMistakes.where((k) => !pt.tentative.contains(k)).length + pt.lateConfirmed;
+    final pg = _phrasePage;
+    _afterFinal(pt, r.$1, shown, words);
+    _watchTentative(pt, pg);
+  }
+
+  Timer? _tentativeTimer;
+
+  /// خطأ في آخر كلمة من العبارة يُعلَّق: إن سكت القارئ بعدها ثُبّت وعُرض، وإن أكمل
+  /// فالعبارة التالية تبيّن هل قُطع الصوت في وسط الكلمة أم أخطأ فعلاً.
+  void _watchTentative(RecitationTracker t, int pg) {
+    _tentativeTimer?.cancel();
+    if (t.tentative.isEmpty) return;
+    var quiet = 0;
+    _tentativeTimer = Timer.periodic(const Duration(milliseconds: 400), (timer) {
+      final l = _listener;
+      if (!mounted || t.tentative.isEmpty) {
+        timer.cancel();
+        return;
+      }
+      final speaking = following && l is QuranAsrListener && l.speaking;
+      quiet = speaking ? 0 : quiet + 1;
+      if (quiet < 2) return;
+      timer.cancel();
+      final n = t.confirmTentative();
+      _collect(t);
+      _report(n);
+      setState(() => _pageStates[pg] = t.wordStates);
+    });
   }
 
   void _afterFinal(RecitationTracker pt, int consumed, int fresh, List<String> words) {

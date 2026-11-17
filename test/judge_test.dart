@@ -58,9 +58,53 @@ void main() {
     expect(t.why[k]!.kind, MistakeKind.substituted);
     expect(explainMistake(t.why[k], t.voweledAt(k)), 'سُمعت «الْحِسَابِ» مكان «الدِّينِ».');
     expect(t.correctedPhrase(k), 'الرَّحْمَنِ الرَّحِيمِ مَالِكِ يَوْمِ الدِّينِ');
+    // آخر كلمة في العبارة تُعلَّق حتى يسكت القارئ أو يكمل بغيرها.
+    expect(t.mistakes, isEmpty);
+    expect(t.confirmTentative(), 1);
+    expect(t.mistakes, {k});
     t.dismiss(k);
     expect(t.mistakes, isEmpty);
     expect(t.positionOf(t.displayKey(k)), k);
+  });
+
+  test('كلمة قُطع الصوت في وسطها ليست خطأً', () {
+    final t = tracker();
+    say(t, 'بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ الْحَمْدُ لِلَّهِ رَبِّ الْعَا');
+    expect(t.tentative, isNotEmpty);
+    say(t, 'لَمِينَ الرَّحْمَنِ الرَّحِيمِ');
+    expect(t.tentative, isEmpty);
+    expect(t.mistakes, isEmpty);
+    expect(t.lateConfirmed, 0);
+    expect(t.currentKey, 4);
+  });
+
+  test('كلمة مبدلة في آخر العبارة تتأكد حين يكمل القارئ بما بعدها', () {
+    final t = tracker();
+    say(t, 'بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ الْحَمْدُ لِلَّهِ رَبِّ النَّاسِ');
+    expect(t.mistakes, isEmpty);
+    say(t, 'الرَّحْمَنِ الرَّحِيمِ مَالِكِ يَوْمِ الدِّينِ');
+    expect(t.lateConfirmed, 1);
+    expect([for (final k in t.mistakes) t.voweledAt(k)], ['الْعَالَمِينَ']);
+  });
+
+  test('كلمة مبدلة في وسط العبارة يُعرف ما قيل مكانها', () {
+    final t = tracker();
+    say(t, 'بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ الشُّكْرُ لِلَّهِ رَبِّ الْعَالَمِينَ الرَّحْمَنِ');
+    final k = t.mistakes.single;
+    expect(t.voweledAt(k), 'الْحَمْدُ');
+    expect(t.why[k]!.kind, MistakeKind.substituted);
+    expect(t.why[k]!.heard, 'الشُّكْرُ');
+    expect(t.correctedPhrase(k), contains('الرَّحِيمِ الْحَمْدُ لِلَّهِ'));
+  });
+
+  test('إعادة العبارة لا تُعدّ قفزاً إلى ما بعدها', () {
+    final t = RecitationTracker([
+      RecitedSegment(1, 'فَلَا تَقُلْ لَهُمَا أُفٍّ وَلَا تَنْهَرْهُمَا وَقُلْ لَهُمَا قَوْلًا كَرِيمًا'),
+    ])..wholePhrases = true;
+    say(t, 'فَلَا تَقُلْ لَهُمَا أُفٍّ');
+    say(t, 'فَلَا تَقُلْ لَهُمَا أُفٍّ وَلَا تَنْهَرْهُمَا وَقُلْ لَهُمَا قَوْلًا كَرِيمًا');
+    expect(t.mistakes, isEmpty);
+    expect(t.finished, isTrue);
   });
 
   test('الكلمة الساقطة تُدرج في النص المصحَّح', () {
