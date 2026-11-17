@@ -68,4 +68,35 @@ void main() {
     expect(similarWord('والله', 'الله'), isTrue);
     expect(similarWord('من', 'ما'), isFalse);
   });
+
+  test('الحرف المختلف خطأ إلا إن فسّره الإملاء أو جاء صحيحاً في بديل', () {
+    final t = RecitationTracker([RecitedSegment(1, 'والله بما تعملون بصير')]);
+    final r = t.feed(recitationWords('والله بما يعملون بصير'), 0);
+    expect(r.$2, 1);
+    expect(t.wordStates['1:2'], WordState.mistake);
+
+    // البديل الآخر فيه الكلمة صحيحة: الأرجح أن التعرّف أخطأ لا القارئ.
+    final u = RecitationTracker([RecitedSegment(1, 'والله بما تعملون بصير')]);
+    final alts = [recitationWords('والله بما يعملون بصير'), recitationWords('والله بما تعملون بصير')];
+    u.feed(alts.first, 0, alternatives: alts);
+    expect(u.mistakes, isEmpty);
+
+    // اختلاف الإملاء ليس خطأً.
+    expect(spellingVariant('العالمين', 'العلمين'), isTrue);
+    expect(spellingVariant('فقالوا', 'وقالوا'), isTrue);
+    expect(spellingVariant('يعملون', 'تعملون'), isFalse);
+
+    final v = RecitationTracker([RecitedSegment(1, 'والله بما تعملون بصير')])..strict = false;
+    v.feed(recitationWords('والله بما يعملون بصير'), 0);
+    expect(v.mistakes, isEmpty);
+  });
+
+  test('يرجع مع القارئ إن كرر ما قرأه', () {
+    final t = fatiha();
+    t.feed(recitationWords('بسم الله الرحمن الرحيم الحمد لله رب العالمين الرحمن الرحيم مالك'), 0);
+    expect(t.currentKey, 4);
+    t.feed(recitationWords('الحمد لله رب العالمين'), 0);
+    expect(t.currentKey, 3);
+    expect(t.mistakes, isEmpty);
+  });
 }

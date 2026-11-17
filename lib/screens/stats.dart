@@ -37,7 +37,7 @@ class _StatsScreenState extends State<StatsScreen> {
           const SizedBox(height: 16),
           SectionCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Label('التقدم في صحيح البخاري'),
+              Label('التقدم في ${s.hadith.current.title}'),
               const SizedBox(height: 8),
               Text('${(progress * 100).toStringAsFixed(1)}٪',
                   style: TextStyle(fontSize: 30, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.primary)),

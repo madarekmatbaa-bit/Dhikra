@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../db/bukhari_db.dart';
+import '../db/hadith_db.dart';
+import '../db/user_db.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/brand.dart';
@@ -21,11 +22,12 @@ class ReaderScreen extends StatefulWidget {
 class _ReaderScreenState extends State<ReaderScreen> {
   late final PageController _pages;
   late int current;
+  int get _total => context.read<AppState>().hadith.total;
 
   @override
   void initState() {
     super.initState();
-    current = widget.start.clamp(1, totalHadiths);
+    current = widget.start.clamp(1, _total);
     _pages = PageController(initialPage: current - 1);
   }
 
@@ -36,7 +38,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _go(int number) {
-    if (number < 1 || number > totalHadiths) return;
+    if (number < 1 || number > _total) return;
     _pages.animateToPage(number - 1, duration: const Duration(milliseconds: 260), curve: Curves.easeOut);
   }
 
@@ -49,7 +51,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       toast(context, 'أتممت ورد اليوم، بارك الله فيك');
     }
     if (s.finished && counted) {
-      toast(context, 'ختمت صحيح البخاري، الحمد لله');
+      toast(context, 'ختمت ${s.hadith.current.title}، الحمد لله');
       return;
     }
     _go(current + 1);
@@ -62,7 +64,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         builder: (_) => BenefitEditScreen(
           initialBody: body,
           sourceType: 'hadith',
-          sourceRef: '$current',
+          sourceRef: hadithRef(context.read<AppState>().hadith.currentId, current),
         ),
       ),
     );
@@ -72,7 +74,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     final pal = Palette.of(context);
-    final book = s.bukhari.bookOf(current);
+    final book = s.hadith.bookOf(current);
     final log = s.todayLog;
     final inWird = widget.wirdMode && log != null && current >= log.fromPos && current <= log.toPos;
     final counts = current == s.position && !s.finished;
@@ -102,7 +104,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       ),
       body: PageView.builder(
         controller: _pages,
-        itemCount: totalHadiths,
+        itemCount: s.hadith.total,
         onPageChanged: (i) => setState(() => current = i + 1),
         itemBuilder: (context, i) => _HadithPage(
           number: i + 1,
@@ -131,7 +133,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: FilledButton(
-                onPressed: counts ? _readAndNext : (current < totalHadiths ? () => _go(current + 1) : null),
+                onPressed: counts ? _readAndNext : (current < s.hadith.total ? () => _go(current + 1) : null),
                 child: Text(counts ? 'قرأته · التالي' : 'التالي'),
               ),
             ),
@@ -152,7 +154,7 @@ class _HadithPage extends StatelessWidget {
     final s = context.watch<AppState>();
     final pal = Palette.of(context);
     return FutureBuilder<Hadith>(
-      future: s.bukhari.hadith(number),
+      future: s.hadith.hadith(number),
       builder: (context, snap) {
         final h = snap.data;
         if (h == null) return const Center(child: CircularProgressIndicator());

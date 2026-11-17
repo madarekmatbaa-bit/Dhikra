@@ -9,112 +9,56 @@ import '../services/notifications.dart';
 import '../util/arabic.dart';
 import '../util/ranges.dart';
 
-/// إعدادات المراجعة: ما يحفظه المستخدم، وكم يحفظ جديداً، وفي كم يوم يدور على محفوظه القديم.
-class ReviewConfig {
-  final List<int> memorized; // مرتبة
-  final List<int> recentOrder; // ترتيب الحفظ، الأحدث في الآخر
-  final int newPerDay; // 0 = لا حفظ جديد، مراجعة فقط
-  final bool descending; // الحفظ من آخر المصحف
-  final int newNext;
-  final int recentCount;
-  final int cycleDays;
-  final int oldNext;
-  const ReviewConfig({
-    required this.memorized,
-    this.recentOrder = const [],
-    this.newPerDay = 1,
-    this.descending = false,
-    this.newNext = 1,
-    this.recentCount = 20,
-    this.cycleDays = 14,
-    this.oldNext = 1,
-  });
+/// صفحات ورد يوم واحد: من [next] عدد [perDay] صفحة، ولا يتجاوز آخر المصحف
+/// (يُختم المصحف في آخر يوم ثم يبدأ الورد من أوله). دالة نقية لتسهل تجربتها.
+List<int> wirdPages(int next, int perDay) {
+  final from = next.clamp(1, quranPages);
+  final to = min(from + max(1, perDay) - 1, quranPages);
+  return [for (var p = from; p <= to; p++) p];
 }
 
-class DayParts {
-  final List<int> newPages;
-  final List<int> recent;
-  final List<int> old;
-  const DayParts(this.newPages, this.recent, this.old);
-}
-
-/// يحسب ورد يوم واحد. دالة نقية لتسهل تجربتها.
-DayParts computeDay(ReviewConfig c) {
-  final mem = c.memorized.toSet();
-
-  final newPages = <int>[];
-  if (c.newPerDay > 0) {
-    var p = c.newNext.clamp(1, quranPages);
-    final step = c.descending ? -1 : 1;
-    var guard = 0;
-    while (newPages.length < c.newPerDay && p >= 1 && p <= quranPages && guard++ < quranPages) {
-      if (!mem.contains(p)) newPages.add(p);
-      p += step;
-    }
-    newPages.sort();
-  }
-
-  final recentSet = <int>{};
-  for (final p in c.recentOrder.reversed) {
-    if (recentSet.length >= c.recentCount) break;
-    if (mem.contains(p)) recentSet.add(p);
-  }
-  final recent = recentSet.toList()..sort();
-
-  final oldPool = [for (final p in c.memorized) if (!recentSet.contains(p)) p];
-  final old = <int>[];
-  if (oldPool.isNotEmpty) {
-    final n = min((oldPool.length / max(1, c.cycleDays)).ceil(), oldPool.length);
-    var i = oldPool.indexWhere((p) => p >= c.oldNext);
-    if (i < 0) i = 0;
-    for (var k = 0; k < n; k++) {
-      old.add(oldPool[(i + k) % oldPool.length]);
-    }
-    old.sort();
-  }
-  return DayParts(newPages, recent, old);
-}
-
+/// سجل ورد القرآن ليوم. يُحفظ في جدول quran_logs القديم: الصفحات في new_pages
+/// وأعلى صفحة بلغها في recent_pages، والإتمام في new_done.
 class QuranLog {
   final String date;
-  final List<int> newPages;
-  final List<int> recent;
-  final List<int> old;
-  final bool newDone;
-  final bool recentDone;
-  final bool oldDone;
-  const QuranLog(this.date, this.newPages, this.recent, this.old,
-      {this.newDone = false, this.recentDone = false, this.oldDone = false});
+  final List<int> pages;
+  final int reached;
+  final bool done;
+  const QuranLog(this.date, this.pages, {this.reached = 0, this.done = false});
 
-  bool get complete =>
-      (newPages.isEmpty || newDone) && (recent.isEmpty || recentDone) && (old.isEmpty || oldDone) && !isEmpty;
-  bool get isEmpty => newPages.isEmpty && recent.isEmpty && old.isEmpty;
-  int get partsTotal => [newPages, recent, old].where((l) => l.isNotEmpty).length;
-  int get partsDone =>
-      (newPages.isNotEmpty && newDone ? 1 : 0) + (recent.isNotEmpty && recentDone ? 1 : 0) + (old.isNotEmpty && oldDone ? 1 : 0);
+  bool get isEmpty => pages.isEmpty;
+  bool get complete => done && !isEmpty;
 
-  QuranLog copyWith({bool? newDone, bool? recentDone, bool? oldDone}) => QuranLog(date, newPages, recent, old,
-      newDone: newDone ?? this.newDone, recentDone: recentDone ?? this.recentDone, oldDone: oldDone ?? this.oldDone);
+  /// كم صفحة قرأ منها (بحسب أبعد صفحة فتحها).
+  int get readCount => done ? pages.length : pages.where((p) => p <= reached).length;
+
+  QuranLog copyWith({int? reached, bool? done}) =>
+      QuranLog(date, pages, reached: reached ?? this.reached, done: done ?? this.done);
 
   Map<String, Object?> toRow() => {
         'date': date,
-        'new_pages': formatRanges(newPages),
-        'recent_pages': formatRanges(recent),
-        'old_pages': formatRanges(old),
-        'new_done': newDone ? 1 : 0,
-        'recent_done': recentDone ? 1 : 0,
-        'old_done': oldDone ? 1 : 0,
+        'new_pages': formatRanges(pages),
+        'recent_pages': reached > 0 ? '$reached' : '',
+        'old_pages': '',
+        'new_done': done ? 1 : 0,
+        'recent_done': 0,
+        'old_done': 0,
       };
 
-  factory QuranLog.fromRow(Map<String, Object?> r) => QuranLog(
-        r['date'] as String,
-        parseRanges(r['new_pages'] as String),
-        parseRanges(r['recent_pages'] as String),
-        parseRanges(r['old_pages'] as String),
-        newDone: r['new_done'] == 1,
-        recentDone: r['recent_done'] == 1,
-        oldDone: r['old_done'] == 1,
-      );
+  factory QuranLog.fromRow(Map<String, Object?> r) {
+    // سجلات المراجعة القديمة: نعدّ صفحاتها كلها، وتمامها تمام أجزائها.
+    final pages = {
+      ...parseRanges(r['new_pages'] as String),
+      ...parseRanges(r['old_pages'] as String),
+    }.toList()
+      ..sort();
+    final reached = int.tryParse(r['recent_pages'] as String? ?? '') ?? 0;
+    final oldStyle = (r['old_pages'] as String).isNotEmpty || ((r['recent_pages'] as String).contains('-') || (r['recent_pages'] as String).contains(','));
+    final done = oldStyle
+        ? (r['new_done'] == 1 || (r['new_pages'] as String).isEmpty) && (r['old_done'] == 1 || (r['old_pages'] as String).isEmpty)
+        : r['new_done'] == 1;
+    return QuranLog(r['date'] as String, pages, reached: oldStyle ? 0 : reached, done: done);
+  }
 }
 
 class QuranNote {
@@ -138,7 +82,7 @@ class QuranNote {
 
 const noteKinds = {'mistake': 'خطأ في الحفظ', 'mutashabih': 'متشابه', 'tadabbur': 'تدبّر'};
 
-/// ورد مراجعة القرآن: الجديد والقريب والبعيد، مع سجل الأيام والملاحظات.
+/// ورد القرآن اليومي: عدد ثابت من الصفحات يمضي في المصحف بالترتيب، مع سجل الأيام والملاحظات.
 class QuranReview {
   final QuranDb db;
   final Database Function() userDb;
@@ -161,16 +105,13 @@ class QuranReview {
   SharedPreferences get _p => prefs();
   bool get enabled => _p.getBool('q_enabled') ?? false;
 
-  ReviewConfig get config => ReviewConfig(
-        memorized: parseRanges(_p.getString('q_memorized')),
-        recentOrder: (_p.getString('q_recent') ?? '').split(',').where((e) => e.isNotEmpty).map(int.parse).toList(),
-        newPerDay: _p.getInt('q_new_per_day') ?? 1,
-        descending: _p.getString('q_dir') == 'desc',
-        newNext: _p.getInt('q_new_next') ?? 1,
-        recentCount: _p.getInt('q_recent_count') ?? 20,
-        cycleDays: _p.getInt('q_cycle_days') ?? 14,
-        oldNext: _p.getInt('q_old_next') ?? 1,
-      );
+  /// عدد صفحات الورد كل يوم (10 أو 20 أو 30 أو غيرها).
+  int get perDay => _p.getInt('q_wird_pages') ?? 20;
+
+  /// أول صفحة في ورد الغد.
+  int get next => _p.getInt('q_wird_next') ?? 1;
+
+  int get khatmas => _p.getInt('q_khatmas') ?? 0;
 
   TimeOfDay? get reminder => parseTime(_p.getString('q_reminder'));
   int get lastPage => _p.getInt('q_last_page') ?? 1;
@@ -189,6 +130,13 @@ class QuranReview {
   bool get mistakeSound => _p.getBool('q_mistake_sound') ?? true;
   Future<void> setMistakeSound(bool v) async {
     await _p.setBool('q_mistake_sound', v);
+    changed();
+  }
+
+  /// تُعدّ الكلمة المقروءة بحرف مختلف خطأً (لا الكلمة الساقطة أو المبدلة فقط).
+  bool get strictLetters => _p.getBool('q_strict') ?? true;
+  Future<void> setStrictLetters(bool v) async {
+    await _p.setBool('q_strict', v);
     changed();
   }
 
@@ -221,41 +169,21 @@ class QuranReview {
   Future<void> ensureToday({bool notify = true}) async {
     if (!enabled) return;
     if (today != null) return;
-    final d = computeDay(config);
-    await _put(QuranLog(_today, d.newPages, d.recent, d.old));
+    await _put(QuranLog(_today, wirdPages(next, perDay)));
     if (notify) changed();
   }
 
-  /// يحفظ الإعدادات ويعيد حساب ورد اليوم إن لم يُنجز منه شيء.
-  Future<void> setup({
-    required List<int> memorized,
-    required int newPerDay,
-    required bool descending,
-    required int recentCount,
-    required int cycleDays,
-    int? newStart,
-  }) async {
-    final first = !enabled;
+  /// يحفظ عدد صفحات الورد وموضع البدء، ويعيد حساب ورد اليوم إن لم يُتمّه.
+  Future<void> setup({required int perDay, int? start}) async {
     await _p.setBool('q_enabled', true);
-    await _p.setString('q_memorized', formatRanges(memorized));
-    await _p.setInt('q_new_per_day', newPerDay);
-    await _p.setString('q_dir', descending ? 'desc' : 'asc');
-    await _p.setInt('q_recent_count', recentCount);
-    await _p.setInt('q_cycle_days', cycleDays);
-    final mem = memorized.toSet();
-    if (newStart != null) {
-      await _p.setInt('q_new_next', newStart);
-    } else if (first || mem.contains(config.newNext)) {
-      // أول صفحة غير محفوظة في اتجاه الحفظ.
-      final pages = descending
-          ? [for (var i = quranPages; i >= 1; i--) i]
-          : [for (var i = 1; i <= quranPages; i++) i];
-      await _p.setInt('q_new_next', pages.firstWhere((p) => !mem.contains(p), orElse: () => pages.first));
-    }
-    final recent = config.recentOrder.where(mem.contains).toList();
-    await _p.setString('q_recent', recent.join(','));
+    await _p.setInt('q_wird_pages', perDay.clamp(1, 604));
     final t = today;
-    if (t == null || (!t.newDone && !t.recentDone && !t.oldDone)) {
+    if (start != null) {
+      await _p.setInt('q_wird_next', start.clamp(1, quranPages));
+    } else if (t != null && !t.done && t.pages.isNotEmpty) {
+      await _p.setInt('q_wird_next', t.pages.first);
+    }
+    if (t == null || !t.done) {
       await userDb().delete('quran_logs', where: 'date = ?', whereArgs: [_today]);
       logs.removeWhere((l) => l.date == _today);
       await ensureToday(notify: false);
@@ -263,49 +191,30 @@ class QuranReview {
     changed();
   }
 
-  Future<void> markNew(bool done) async {
+  /// يسجّل أبعد صفحة فتحها من ورد اليوم.
+  Future<void> notePage(int page) async {
     final t = today;
-    if (t == null || t.newPages.isEmpty || t.newDone == done) return;
-    final c = config;
-    final mem = c.memorized.toSet();
-    final order = [...c.recentOrder];
-    if (done) {
-      mem.addAll(t.newPages);
-      order
-        ..removeWhere(t.newPages.contains)
-        ..addAll(t.newPages);
-      final edge = c.descending ? t.newPages.first - 1 : t.newPages.last + 1;
-      await _p.setInt('q_new_next', edge.clamp(1, quranPages));
-    } else {
-      mem.removeAll(t.newPages);
-      order.removeWhere(t.newPages.contains);
-      await _p.setInt('q_new_next', c.descending ? t.newPages.last : t.newPages.first);
-    }
-    final trimmed = order.length > 300 ? order.sublist(order.length - 300) : order;
-    await _p.setString('q_memorized', formatRanges(mem));
-    await _p.setString('q_recent', trimmed.join(','));
-    await _put(t.copyWith(newDone: done));
+    if (t == null || t.done || !t.pages.contains(page) || page <= t.reached) return;
+    await _put(t.copyWith(reached: page));
     changed();
   }
 
-  Future<void> markRecent(bool done) async {
+  /// يعلّم ورد اليوم مقروءاً (أو يلغي ذلك)، فيتقدم موضع الورد أو يرجع.
+  Future<void> markDone(bool done) async {
     final t = today;
-    if (t == null) return;
-    await _put(t.copyWith(recentDone: done));
-    changed();
-  }
-
-  Future<void> markOld(bool done) async {
-    final t = today;
-    if (t == null || t.old.isEmpty || t.oldDone == done) return;
+    if (t == null || t.isEmpty || t.done == done) return;
     if (done) {
-      final pool = config.memorized;
-      final after = pool.where((p) => p > t.old.last);
-      await _p.setInt('q_old_next', after.isEmpty ? 1 : after.first);
+      var n = t.pages.last + 1;
+      if (n > quranPages) {
+        n = 1;
+        await _p.setInt('q_khatmas', khatmas + 1);
+      }
+      await _p.setInt('q_wird_next', n);
     } else {
-      await _p.setInt('q_old_next', t.old.first);
+      if (t.pages.last == quranPages && next == 1) await _p.setInt('q_khatmas', max(0, khatmas - 1));
+      await _p.setInt('q_wird_next', t.pages.first);
     }
-    await _put(t.copyWith(oldDone: done));
+    await _put(t.copyWith(done: done));
     changed();
   }
 
@@ -336,13 +245,11 @@ class QuranReview {
     return n;
   }
 
-  /// كم يوماً يحتاج لإتمام حفظ المصحف بالمعدل الحالي.
-  int? get daysToFinish {
-    final c = config;
-    if (c.newPerDay <= 0) return null;
-    final left = quranPages - c.memorized.length;
-    if (left <= 0) return null;
-    return (left / c.newPerDay).ceil();
+  /// كم يوماً بقي على ختم المصحف بهذا الورد (بعد ورد اليوم إن أتمّه).
+  int get daysToKhatma {
+    final t = today;
+    final from = t != null && !t.done ? t.pages.first : next;
+    return ((quranPages - from + 1) / perDay).ceil();
   }
 
   // ---------- الملاحظات ----------

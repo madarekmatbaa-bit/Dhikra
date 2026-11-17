@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../db/adhkar_data.dart';
-import '../db/bukhari_db.dart';
+import '../db/hadith_db.dart';
 import '../db/quran_db.dart';
 import '../db/user_db.dart';
 import '../services/home_widgets.dart';
@@ -25,7 +25,7 @@ class Forecast {
 }
 
 class AppState extends ChangeNotifier {
-  final bukhari = BukhariDb();
+  final hadith = HadithDb();
   final user = UserDb();
   final adhkar = AdhkarData();
   final quranDb = QuranDb();
@@ -76,7 +76,7 @@ class AppState extends ChangeNotifier {
       _widgetPending = false;
       try {
         await HomeWidgets.update(
-          bukhari: bukhari,
+          hadith: hadith,
           position: position,
           finished: finished,
           today: todayLog,
@@ -95,7 +95,8 @@ class AppState extends ChangeNotifier {
     themeMode = _prefs.getString('theme') == 'dark' ? ThemeMode.dark : ThemeMode.light;
     catchUp = _prefs.getString('catchUp') ?? 'postpone';
     khatmas = _prefs.getInt('khatmas') ?? 0;
-    await bukhari.open();
+    await hadith.open();
+    hadith.select(_prefs.getString('hadith_collection') ?? 'bukhari');
     await user.open();
     await adhkar.load();
     await quranDb.open();
@@ -134,7 +135,7 @@ class AppState extends ChangeNotifier {
       ));
 
   Future<void> _reload() async {
-    plan = await user.activePlan('bukhari');
+    plan = await user.activePlan(hadith.currentId);
     if (plan != null) {
       position = await user.position(plan!.id) ?? plan!.startPos;
       await ensureToday(notify: false);
@@ -190,10 +191,10 @@ class AppState extends ChangeNotifier {
 
   Future<void> startPlan({required int perDay, required int startPos, TimeOfDay? reminder}) async {
     await user.createPlan(
-      kind: 'bukhari',
+      kind: hadith.currentId,
       perDay: perDay,
       startPos: startPos,
-      endPos: totalHadiths,
+      endPos: hadith.total,
       startDate: todayKey,
       reminder: reminder == null ? null : timeKey(reminder),
     );
@@ -243,7 +244,7 @@ class AppState extends ChangeNotifier {
     final p = plan;
     if (p == null) return;
     await user.updatePlan(p.id, {'per_day': n});
-    plan = await user.activePlan('bukhari');
+    plan = await user.activePlan(hadith.currentId);
     final t = todayLog;
     if (t != null && !t.done) {
       final to = min(t.fromPos + n - 1, p.endPos);
@@ -257,13 +258,43 @@ class AppState extends ChangeNotifier {
     final p = plan;
     if (p == null) return;
     await user.updatePlan(p.id, {'reminder': time == null ? null : timeKey(time)});
-    plan = await user.activePlan('bukhari');
+    plan = await user.activePlan(hadith.currentId);
     notifyListeners();
     if (time != null) await Reminders.requestPermission();
     await reschedule();
   }
 
   Future<void> newKhatma() => setPosition(1);
+
+  /// الكتاب التالي في ترتيب الكتب الستة بعد الكتاب الحالي.
+  HadithCollection? get nextCollection => hadith.nextAfter(hadith.currentId);
+
+  /// موضع كل كتاب له ورد: رقم الحديث التالي فيه.
+  Future<Map<String, int>> collectionPositions() async {
+    final out = <String, int>{};
+    for (final c in hadith.collections) {
+      final p = await user.activePlan(c.id);
+      if (p != null) out[c.id] = await user.position(p.id) ?? p.startPos;
+    }
+    return out;
+  }
+
+  /// ينتقل إلى كتاب آخر من الكتب الستة. لكل كتاب ورده وموضعه، فالرجوع إليه يكمل من حيث توقف.
+  /// إن لم يكن له ورد بعدُ وطُلب [carryOver]، يبدأ ورده من أوله بعدد أحاديث الورد الحالي وتذكيره.
+  Future<void> switchCollection(String id, {bool carryOver = false}) async {
+    final old = plan;
+    hadith.select(id);
+    await _prefs.setString('hadith_collection', hadith.currentId);
+    plan = null;
+    logs = [];
+    position = 1;
+    await _reload();
+    if (plan == null && carryOver && old != null) {
+      await startPlan(perDay: old.perDay, startPos: 1, reminder: parseTime(old.reminder));
+      return;
+    }
+    notifyListeners();
+  }
 
   // ---------- الخط والعذر ----------
 

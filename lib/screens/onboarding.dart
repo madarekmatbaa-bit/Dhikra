@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../db/bukhari_db.dart';
+import '../db/hadith_db.dart';
 import '../services/notifications.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
@@ -17,6 +17,7 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   int step = 0;
+  String collection = 'bukhari';
   int perDay = 10;
   String startMode = 'begin'; // begin | book | number
   int bookId = 1;
@@ -34,20 +35,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   int get startPos {
     final s = context.read<AppState>();
     return switch (startMode) {
-      'book' => s.bukhari.bookById(bookId).first,
-      'number' => (int.tryParse(numberCtrl.text) ?? 1).clamp(1, totalHadiths),
+      'book' => s.hadith.bookById(bookId).first,
+      'number' => (int.tryParse(numberCtrl.text) ?? 1).clamp(1, s.hadith.total),
       _ => 1,
     };
   }
 
   Future<void> _finish() async {
     setState(() => saving = true);
-    await context.read<AppState>().startPlan(perDay: perDay, startPos: startPos, reminder: remind ? time : null);
+    final s = context.read<AppState>();
+    await s.switchCollection(collection);
+    if (s.plan != null) return;
+    await s.startPlan(perDay: perDay, startPos: startPos, reminder: remind ? time : null);
   }
 
   @override
   Widget build(BuildContext context) {
-    final steps = [_perDayStep(), _startStep(), _reminderStep()];
+    final steps = [_collectionStep(), _perDayStep(), _startStep(), _reminderStep()];
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -60,10 +64,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 const SizedBox(width: 12),
                 Text('ذِكرى', style: Theme.of(context).textTheme.headlineSmall),
                 const Spacer(),
-                Text('${step + 1} من 3', style: TextStyle(color: Palette.of(context).muted)),
+                Text('${step + 1} من 4', style: TextStyle(color: Palette.of(context).muted)),
               ]),
               const SizedBox(height: 14),
-              LinearProgressIndicator(value: (step + 1) / 3, minHeight: 5, borderRadius: BorderRadius.circular(4)),
+              LinearProgressIndicator(value: (step + 1) / 4, minHeight: 5, borderRadius: BorderRadius.circular(4)),
               const SizedBox(height: 26),
               Expanded(child: SingleChildScrollView(child: steps[step])),
               Row(children: [
@@ -75,8 +79,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 Expanded(
                   flex: 2,
                   child: FilledButton(
-                    onPressed: saving ? null : () => step < 2 ? setState(() => step++) : _finish(),
-                    child: Text(step < 2 ? 'التالي' : 'ابدأ الورد'),
+                    onPressed: saving ? null : () => step < 3 ? setState(() => step++) : _finish(),
+                    child: Text(step < 3 ? 'التالي' : 'ابدأ الورد'),
                   ),
                 ),
               ]),
@@ -94,8 +98,44 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         const SizedBox(height: 22),
       ]);
 
+  HadithCollection get _chosen => context.read<AppState>().hadith.collection(collection);
+
+  Widget _collectionStep() {
+    final s = context.read<AppState>();
+    final pal = Palette.of(context);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _title('بأي كتاب تبدأ؟', 'تقرأ الكتاب بالترتيب حديثاً بعد حديث، فإذا ختمته انتقلت إلى الذي بعده.'),
+      for (final c in s.hadith.collections)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: SectionCard(
+            color: collection == c.id ? pal.soft : null,
+            onTap: () => setState(() {
+              collection = c.id;
+              s.hadith.select(c.id);
+              startMode = 'begin';
+              bookId = s.hadith.books.first.id;
+            }),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(children: [
+              Icon(collection == c.id ? Icons.check_circle : Icons.circle_outlined,
+                  color: collection == c.id ? Theme.of(context).colorScheme.primary : pal.muted),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(c.title, style: const TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700)),
+                  Text('${c.author} · ${hadithWord(c.total)}', style: TextStyle(color: pal.muted, fontSize: 13)),
+                ]),
+              ),
+            ]),
+          ),
+        ),
+    ]);
+  }
+
   Widget _perDayStep() {
-    final days = (totalHadiths / perDay).ceil();
+    final s = context.read<AppState>();
+    final days = (s.hadith.total / perDay).ceil();
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       _title('كم حديثاً تقرأ كل يوم؟', 'القليل الدائم خير من الكثير المنقطع. تستطيع تغييره لاحقاً.'),
       Wrap(spacing: 10, runSpacing: 10, children: [
@@ -127,7 +167,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           const Icon(Icons.flag_outlined, color: AppColors.sage),
           const SizedBox(width: 12),
           Expanded(
-            child: Text('تختم الصحيح (7563 حديثاً) خلال ${daysWord(days)}، ${roughDuration(days)}.',
+            child: Text('تختم ${_chosen.title} (${hadithWord(_chosen.total)}) خلال ${daysWord(days)}، ${roughDuration(days)}.',
                 style: const TextStyle(fontSize: 15)),
           ),
         ]),
@@ -138,8 +178,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget _startStep() {
     final s = context.read<AppState>();
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _title('من أين تبدأ؟', 'الترقيم المعتمد هو ترقيم فتح الباري الشائع.'),
-      _option('begin', 'من أول الصحيح', 'كتاب بدء الوحي، الحديث 1'),
+      _title('من أين تبدأ؟', collection == 'bukhari' ? 'الترقيم المعتمد هو ترقيم فتح الباري الشائع.' : 'الترقيم بترتيب أحاديث الكتاب من أوله.'),
+      _option('begin', 'من أول الكتاب', 'كتاب ${s.hadith.books.first.title}، الحديث 1'),
       _option('book', 'من كتاب معين', 'تختار الكتاب من الفهرس'),
       if (startMode == 'book')
         Padding(
@@ -148,7 +188,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             initialValue: bookId,
             isExpanded: true,
             items: [
-              for (final b in s.bukhari.books)
+              for (final b in s.hadith.books)
                 DropdownMenuItem(value: b.id, child: Text('${b.id}. ${b.title}', overflow: TextOverflow.ellipsis)),
             ],
             onChanged: (v) => setState(() => bookId = v ?? 1),
@@ -159,7 +199,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         TextField(
           controller: numberCtrl,
           keyboardType: TextInputType.number,
-          decoration: const InputDecoration(hintText: 'رقم الحديث من 1 إلى 7563'),
+          decoration: InputDecoration(hintText: 'رقم الحديث من 1 إلى ${s.hadith.total}'),
           onChanged: (_) => setState(() {}),
         ),
     ]);

@@ -1,12 +1,12 @@
 import 'package:home_widget/home_widget.dart';
 
-import '../db/bukhari_db.dart';
+import '../db/hadith_db.dart';
 import '../db/user_db.dart';
 
 /// يحدّث ويدجت الشاشة الرئيسية (ورد الحديث، وفائدة اليوم).
 class HomeWidgets {
   static Future<void> update({
-    required BukhariDb bukhari,
+    required HadithDb hadith,
     required int position,
     required bool finished,
     required WirdLog? today,
@@ -15,11 +15,11 @@ class HomeWidgets {
   }) async {
     if (finished) {
       await HomeWidget.saveWidgetData('wird_progress', '');
-      await HomeWidget.saveWidgetData('wird_sub', 'ختمت صحيح البخاري، الحمد لله');
+      await HomeWidget.saveWidgetData('wird_sub', 'ختمت ${hadith.current.title}، الحمد لله');
       await HomeWidget.saveWidgetData('wird_text', '');
     } else {
-      final h = await bukhari.hadith(position);
-      final book = bukhari.bookOf(position);
+      final h = await hadith.hadith(position);
+      final book = hadith.bookOf(position);
       final target = today?.target ?? perDay;
       final read = (today?.readCount ?? 0).clamp(0, target);
       final done = today?.done ?? false;

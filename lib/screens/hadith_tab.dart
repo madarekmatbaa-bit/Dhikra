@@ -3,20 +3,21 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../db/bukhari_db.dart';
+import '../db/hadith_db.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../util/arabic.dart';
 import 'reader.dart';
 
-class BukhariIndexScreen extends StatefulWidget {
-  const BukhariIndexScreen({super.key});
+/// تبويب الحديث: الكتاب الذي يقرؤه الآن من الكتب الستة، بفهرسه وبحثه.
+class HadithTab extends StatefulWidget {
+  const HadithTab({super.key});
 
   @override
-  State<BukhariIndexScreen> createState() => _BukhariIndexScreenState();
+  State<HadithTab> createState() => _HadithTabState();
 }
 
-class _BukhariIndexScreenState extends State<BukhariIndexScreen> {
+class _HadithTabState extends State<HadithTab> {
   final _q = TextEditingController();
   Timer? _debounce;
   List<SearchHit>? hits;
@@ -42,11 +43,11 @@ class _BukhariIndexScreenState extends State<BukhariIndexScreen> {
       return;
     }
     if (n != null) {
-      setState(() => hits = n >= 1 && n <= totalHadiths ? [SearchHit(n, s.bukhari.bookOf(n).id, 'انتقل إلى الحديث $n')] : []);
+      setState(() => hits = n >= 1 && n <= s.hadith.total ? [SearchHit(n, s.hadith.bookOf(n).id, 'انتقل إلى الحديث $n')] : []);
       return;
     }
     setState(() => searching = true);
-    final r = await s.bukhari.search(v);
+    final r = await s.hadith.search(v);
     if (!mounted || _q.text != v) return;
     setState(() {
       hits = r;
@@ -60,13 +61,31 @@ class _BukhariIndexScreenState extends State<BukhariIndexScreen> {
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     final pal = Palette.of(context);
-    final currentBook = s.bukhari.bookOf(s.position);
+    final currentBook = s.hadith.bookOf(s.position);
     return SafeArea(
       child: Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('صحيح البخاري', style: Theme.of(context).textTheme.titleLarge),
+            Text('الحديث', style: TextStyle(color: pal.muted, fontSize: 13)),
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _chooseCollection(context),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(children: [
+                  Flexible(
+                    child: Text(s.hadith.current.title,
+                        style: const TextStyle(fontFamily: readingFont, fontSize: 26, fontWeight: FontWeight.w700, height: 1.35)),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.expand_more, color: pal.muted),
+                ]),
+              ),
+            ),
+            Text(
+                'وصلت إلى الحديث ${s.position.clamp(1, s.hadith.total)} من ${s.hadith.total}',
+                style: TextStyle(color: pal.muted, fontSize: 13)),
             const SizedBox(height: 12),
             TextField(
               controller: _q,
@@ -97,8 +116,8 @@ class _BukhariIndexScreenState extends State<BukhariIndexScreen> {
                     // فهرس الكتب كفهرس كتاب مطبوع: سطور يفصلها خط رفيع، والرقم بخط النسخ.
                     Card(
                       child: Column(children: [
-                        for (final b in s.bukhari.books) ...[
-                          if (b.id != s.bukhari.books.first.id) Divider(height: 1, indent: 16, endIndent: 16, color: pal.line),
+                        for (final b in s.hadith.books) ...[
+                          if (b.id != s.hadith.books.first.id) Divider(height: 1, indent: 16, endIndent: 16, color: pal.line),
                           _BookRow(book: b, here: b.id == currentBook.id),
                         ],
                       ]),
@@ -108,6 +127,21 @@ class _BukhariIndexScreenState extends State<BukhariIndexScreen> {
         ),
       ]),
     );
+  }
+
+  Future<void> _chooseCollection(BuildContext context) async {
+    final s = context.read<AppState>();
+    final positions = await s.collectionPositions();
+    if (!context.mounted) return;
+    final id = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (c) => _CollectionSheet(positions: positions),
+    );
+    if (id == null || id == s.hadith.currentId) return;
+    _q.clear();
+    setState(() => hits = null);
+    await s.switchCollection(id, carryOver: true);
   }
 
   Widget _results(Palette pal, AppState s) {
@@ -128,7 +162,7 @@ class _BukhariIndexScreenState extends State<BukhariIndexScreen> {
         final hit = h[i - 1];
         return Card(
           child: ListTile(
-            title: Text('حديث ${hit.number} · كتاب ${s.bukhari.bookById(hit.bookId).title}',
+            title: Text('حديث ${hit.number} · كتاب ${s.hadith.bookById(hit.bookId).title}',
                 style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 15)),
             subtitle: Text(hit.snippet, style: const TextStyle(fontSize: 14, height: 1.6)),
             onTap: () => _open(hit.number),
@@ -140,7 +174,7 @@ class _BukhariIndexScreenState extends State<BukhariIndexScreen> {
 }
 
 class _BookRow extends StatelessWidget {
-  final BukhariBook book;
+  final HadithBook book;
   final bool here;
   const _BookRow({required this.book, required this.here});
 
@@ -178,7 +212,7 @@ class _BookRow extends StatelessWidget {
 }
 
 class BookScreen extends StatelessWidget {
-  final BukhariBook book;
+  final HadithBook book;
   const BookScreen({super.key, required this.book});
 
   @override
@@ -188,7 +222,7 @@ class BookScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: Text('كتاب ${book.title}')),
       body: FutureBuilder<List<(int, String)>>(
-        future: s.bukhari.previews(book.first, book.last),
+        future: s.hadith.previews(book.first, book.last),
         builder: (context, snap) {
           final items = snap.data;
           if (items == null) return const Center(child: CircularProgressIndicator());
@@ -213,6 +247,68 @@ class BookScreen extends StatelessWidget {
             },
           );
         },
+      ),
+    );
+  }
+}
+
+class _CollectionSheet extends StatelessWidget {
+  final Map<String, int> positions;
+  const _CollectionSheet({required this.positions});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.read<AppState>();
+    final pal = Palette.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('الكتب الستة', style: TextStyle(fontFamily: readingFont, fontSize: 20, fontWeight: FontWeight.w700)),
+          Text('لكل كتاب ورده وموضعه. إذا رجعت إلى كتاب أكملت من حيث وقفت.',
+              style: TextStyle(color: pal.muted, fontSize: 13)),
+          const SizedBox(height: 10),
+          for (final c in s.hadith.collections) ...[
+            Divider(height: 1, color: pal.line),
+            InkWell(
+              onTap: () => Navigator.pop(context, c.id),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(children: [
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(c.title,
+                          style: TextStyle(
+                              fontFamily: readingFont,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: c.id == s.hadith.currentId ? AppColors.olive : null)),
+                      Text(
+                        positions[c.id] == null
+                            ? '${hadithWord(c.total)} · لم تبدأه'
+                            : positions[c.id]! > c.total
+                                ? 'ختمته، الحمد لله'
+                                : 'وصلت إلى ${positions[c.id]} من ${c.total}',
+                        style: TextStyle(color: pal.muted, fontSize: 13),
+                      ),
+                    ]),
+                  ),
+                  if (positions[c.id] != null)
+                    SizedBox(
+                      width: 44,
+                      child: Text('${((positions[c.id]! - 1) * 100 / c.total).clamp(0, 100).floor()}%',
+                          textAlign: TextAlign.end, style: TextStyle(color: pal.muted, fontSize: 13)),
+                    ),
+                  if (c.id == s.hadith.currentId)
+                    const Padding(
+                      padding: EdgeInsetsDirectional.only(start: 8),
+                      child: Icon(Icons.bookmark, color: AppColors.wheat, size: 20),
+                    ),
+                ]),
+              ),
+            ),
+          ],
+        ]),
       ),
     );
   }

@@ -25,9 +25,12 @@ class QuranReader extends StatefulWidget {
   final int? highlightSura;
   final int? highlightAya;
 
-  /// صفحات ورد المراجعة، تظهر في الأعلى إن مُرّرت.
+  /// صفحات ورد اليوم، تظهر في الأعلى إن مُرّرت.
   final List<int>? portion;
   final String? portionTitle;
+
+  /// يُستدعى بزر «أتممت الورد» في آخر صفحة منه.
+  final Future<void> Function()? onFinishPortion;
   const QuranReader({
     super.key,
     required this.page,
@@ -35,6 +38,7 @@ class QuranReader extends StatefulWidget {
     this.highlightAya,
     this.portion,
     this.portionTitle,
+    this.onFinishPortion,
   });
 
   @override
@@ -72,6 +76,11 @@ class _QuranReaderState extends State<QuranReader> {
     super.initState();
     page = widget.page.clamp(1, quranPages);
     _pc = PageController(initialPage: page - 1);
+    if (widget.portion != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.read<AppState>().quran.notePage(page);
+      });
+    }
     _listener
       ..onWords = _onWords
       ..onLevel = (l) {
@@ -237,7 +246,7 @@ class _QuranReaderState extends State<QuranReader> {
       }
       segs.add(RecitedSegment(a.id, a.plain, uthmani: QuranDb.stripNumber(a.text)));
     }
-    final t = RecitationTracker(segs);
+    final t = RecitationTracker(segs)..strict = _q.strictLetters;
     if (startKey != null) t.startAt(startKey);
     if (!mounted || p != page) return;
     setState(() {
@@ -389,15 +398,27 @@ class _QuranReaderState extends State<QuranReader> {
                     label: const Text('السابقة'),
                   ),
                   const Spacer(),
-                  FilledButton.icon(
-                    onPressed: inPortion >= 0 && inPortion < portion.length - 1
-                        ? () => _go(portion[inPortion + 1])
-                        : inPortion < 0
-                        ? () => _go(portion.first)
-                        : null,
-                    icon: const Icon(Icons.arrow_back),
-                    label: Text(inPortion < 0 ? 'أول الورد' : 'التالية'),
-                  ),
+                  if (inPortion == portion.length - 1 && widget.onFinishPortion != null)
+                    FilledButton.icon(
+                      onPressed: () async {
+                        await widget.onFinishPortion!();
+                        if (!context.mounted) return;
+                        toast(context, 'تقبّل الله، أتممت ورد اليوم');
+                        Navigator.pop(context);
+                      },
+                      icon: const Icon(Icons.check),
+                      label: const Text('أتممت الورد'),
+                    )
+                  else
+                    FilledButton.icon(
+                      onPressed: inPortion >= 0 && inPortion < portion.length - 1
+                          ? () => _go(portion[inPortion + 1])
+                          : inPortion < 0
+                          ? () => _go(portion.first)
+                          : null,
+                      icon: const Icon(Icons.arrow_back),
+                      label: Text(inPortion < 0 ? 'أول الورد' : 'التالية'),
+                    ),
                 ],
               ),
             ),
@@ -438,6 +459,9 @@ class _QuranReaderState extends State<QuranReader> {
                         _toggleHide();
                       case 'sound':
                         s.quran.setMistakeSound(!s.quran.mistakeSound);
+                      case 'strict':
+                        s.quran.setStrictLetters(!s.quran.strictLetters);
+                        _tracker?.strict = s.quran.strictLetters;
                     }
                   },
                   itemBuilder: (_) => [
@@ -451,6 +475,11 @@ class _QuranReaderState extends State<QuranReader> {
                       value: 'sound',
                       checked: s.quran.mistakeSound,
                       child: const Text('نغمة عند الخطأ'),
+                    ),
+                    CheckedPopupMenuItem(
+                      value: 'strict',
+                      checked: s.quran.strictLetters,
+                      child: const Text('دقّق في الحروف'),
                     ),
                   ],
                 ),
@@ -487,6 +516,7 @@ class _QuranReaderState extends State<QuranReader> {
               _currentKey = null;
             });
             s.quran.setLastPage(i + 1);
+            if (widget.portion != null) s.quran.notePage(i + 1);
             if (following) _buildTracker(i + 1);
           },
           itemBuilder: (c, i) => QuranPageView(

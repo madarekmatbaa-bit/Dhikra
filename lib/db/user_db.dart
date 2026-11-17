@@ -73,17 +73,42 @@ class Benefit {
 
   /// المجموعة التي تُفرز بها الفائدة: البخاري، القرآن، اسم الكتاب، أو ملاحظات حرة.
   String get sourceGroup => switch (sourceType) {
-        'hadith' => 'صحيح البخاري',
+        'hadith' => hadithCollectionTitles[parseHadithRef(sourceRef).$1] ?? 'الحديث',
         'quran' => 'القرآن الكريم',
         'book' => (sourceRef ?? 'كتاب').split(' · ').first,
         _ => 'ملاحظات حرة',
       };
 
   String get sourceLabel => switch (sourceType) {
-        'hadith' => 'البخاري · حديث $sourceRef',
+        'hadith' => hadithRefLabel(sourceRef),
         'book' || 'quran' => sourceRef ?? 'كتاب',
         _ => 'ملاحظة حرة',
       };
+}
+
+/// أسماء الكتب الستة، لعرض مصدر الفائدة دون فتح قاعدة الحديث.
+const hadithCollectionTitles = {
+  'bukhari': 'صحيح البخاري',
+  'muslim': 'صحيح مسلم',
+  'abudawud': 'سنن أبي داود',
+  'tirmidhi': 'جامع الترمذي',
+  'nasai': 'سنن النسائي',
+  'ibnmajah': 'سنن ابن ماجه',
+};
+
+/// مرجع حديث في فائدة: «123» للبخاري (كما في النسخ السابقة)، و«muslim:123» لغيره.
+String hadithRef(String collection, int number) => collection == 'bukhari' ? '$number' : '$collection:$number';
+
+(String, int) parseHadithRef(String? ref) {
+  final r = ref ?? '';
+  final i = r.indexOf(':');
+  if (i < 0) return ('bukhari', int.tryParse(r) ?? 1);
+  return (r.substring(0, i), int.tryParse(r.substring(i + 1)) ?? 1);
+}
+
+String hadithRefLabel(String? ref) {
+  final (c, n) = parseHadithRef(ref);
+  return '${hadithCollectionTitles[c] ?? 'الحديث'} · حديث $n';
 }
 
 /// بيانات المستخدم: الأوراد وسجل الأيام والموضع والفوائد.
@@ -161,7 +186,7 @@ class UserDb {
     await db.update('wird_plans', {'active': 0}, where: 'kind = ?', whereArgs: [kind]);
     final id = await db.insert('wird_plans', {
       'kind': kind,
-      'unit': kind == 'bukhari' ? 'hadith' : 'page',
+      'unit': hadithCollectionTitles.containsKey(kind) ? 'hadith' : 'page',
       'per_day': perDay,
       'start_pos': startPos,
       'end_pos': endPos,

@@ -3,9 +3,10 @@ import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
 import '../theme.dart';
-import 'adhkar_tab.dart';
-import 'bukhari_index.dart';
+import 'adhkar_list.dart';
+import 'hadith_tab.dart';
 import 'library_tab.dart';
+import 'prayer_tab.dart';
 import 'quran_tab.dart';
 import 'today.dart';
 import 'benefits.dart';
@@ -59,8 +60,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         children: [
           TodayScreen(onOpenTab: (i) => setState(() => tab = i)),
           const QuranTab(),
-          const BukhariIndexScreen(),
-          const AdhkarTab(),
+          const HadithTab(),
+          const PrayerTab(),
           const LibraryTab(),
         ],
       ),
@@ -72,11 +73,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.wb_sunny_outlined), selectedIcon: Icon(Icons.wb_sunny), label: 'اليوم'),
           NavigationDestination(
-              icon: Icon(Icons.auto_stories_outlined), selectedIcon: Icon(Icons.auto_stories), label: 'القرآن'),
+              icon: Icon(Icons.auto_stories_outlined), selectedIcon: Icon(Icons.auto_stories), label: 'المصحف'),
           NavigationDestination(
-              icon: Icon(Icons.menu_book_outlined), selectedIcon: Icon(Icons.menu_book), label: 'البخاري'),
+              icon: Icon(Icons.menu_book_outlined), selectedIcon: Icon(Icons.menu_book), label: 'الحديث'),
           NavigationDestination(
-              icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome), label: 'الأذكار'),
+              icon: Icon(Icons.mosque_outlined), selectedIcon: Icon(Icons.mosque), label: 'الصلاة'),
           NavigationDestination(
               icon: Icon(Icons.local_library_outlined), selectedIcon: Icon(Icons.local_library), label: 'المكتبة'),
         ],

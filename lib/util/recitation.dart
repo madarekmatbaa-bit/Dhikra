@@ -61,10 +61,13 @@ enum WordState { ahead, current, read, mistake }
 
 /// يتابع موضع القارئ في نص الصفحة من كلمات يسمعها التعرّف على الكلام.
 ///
-/// يمضي كلمة كلمة مع النص، ويتسامح مع اختلاف حرف أو حرفين بحسب طول الكلمة.
-/// إن سمع كلمة لا تطابق ثم عاد القارئ إلى النص بعد كلمة إلى ثلاث كلمات،
-/// عُدّت الكلمات المتخطاة أخطاءً (كلمة أُبدلت أو سقطت). وإن تخطى أكثر من ذلك
-/// عُدّ انتقالاً إلى موضع آخر لا خطأً. لا يرجع إلى الوراء من نفسه.
+/// يمضي كلمة كلمة مع النص، ويتسامح في المتابعة مع اختلاف حرف أو حرفين بحسب طول الكلمة.
+/// ثم يحكم على الأخطاء بالنتيجة النهائية للعبارة وبكل البدائل التي سمعها التعرّف:
+/// - كلمة أُبدلت أو سقطت: سمع ما لا يطابق ثم عاد القارئ إلى النص بعد كلمة إلى ثلاث.
+/// - كلمة قيلت بحرف مختلف («يعملون» مكان «تعملون»): تطابق تقريبي لا يفسّره اختلاف
+///   الإملاء (الهمزات والألف والتاء المربوطة والواو في أولها)، ولم يسمعها صحيحة في أي بديل.
+/// وإن تخطى أكثر من ثلاث كلمات عُدّ انتقالاً إلى موضع آخر لا خطأً.
+/// وإن رجع القارئ يكرر ما قرأه (ثلاث كلمات متتالية خلف موضعه) رجع معه.
 class RecitationTracker {
   final List<int> _keys = [];
   final List<String> _words = [];
@@ -80,6 +83,12 @@ class RecitationTracker {
   /// هل طابقت كلمة في العبارة الحالية؟ أول قفزة في العبارة لا تُعدّ خطأً،
   /// لأن خدمة التعرّف تُسقط أحياناً كلمات عند إعادة تشغيلها بين العبارات.
   bool _matchedInPhrase = false;
+
+  /// التشديد في الحروف: تُعدّ الكلمة المقروءة بحرف مختلف خطأً.
+  bool strict = true;
+
+  /// بدائل العبارة الحالية، ليُتحقق منها قبل عدّ كلمة خطأً.
+  List<List<String>> _alts = const [];
 
   RecitationTracker(List<RecitedSegment> segments) {
     for (var i = 0; i < segments.length; i++) {
@@ -141,12 +150,14 @@ class RecitationTracker {
   /// يمرّر كلمات العبارة الحالية بدءاً من [from]، ويعيد عدد الكلمات المستهلكة منها،
   /// ومعه عدد الأخطاء الجديدة. الكلمة الأخيرة لا تُستهلك إن لم تطابق، لأن التعرّف
   /// قد يصححها في النتيجة التالية.
-  (int, int) feed(List<String> heard, int from, {bool markMistakes = true}) {
+  (int, int) feed(List<String> heard, int from, {bool markMistakes = true, List<List<String>>? alternatives}) {
     if (from == 0) _matchedInPhrase = false;
+    _alts = alternatives ?? [heard];
     var i = from;
     var newMistakes = 0;
     while (i < heard.length && !finished) {
       if (similarWord(heard[i], _words[pos])) {
+        if (markMistakes && strict && _wrongLetters(heard[i], pos) && mistakes.add(pos)) newMistakes++;
         pos++;
         i++;
         _matchedInPhrase = true;
@@ -163,6 +174,14 @@ class RecitationTracker {
         }
         pos = jump.$1;
         i += jump.$2;
+        _matchedInPhrase = true;
+        continue;
+      }
+      final back = _findBehind(heard, i);
+      if (back != null) {
+        // القارئ يعيد ما قرأه: نرجع معه دون أن نعدّ شيئاً.
+        pos = back.$1;
+        i += back.$2;
         _matchedInPhrase = true;
         continue;
       }
@@ -193,7 +212,7 @@ class RecitationTracker {
     mistakes
       ..clear()
       ..addAll(_phraseMistakes);
-    final r = feed(best(alternatives, 0), 0);
+    final r = feed(best(alternatives, 0), 0, alternatives: alternatives);
     return (r.$1, (mistakes.length - before).clamp(0, 1 << 20));
   }
 
@@ -228,6 +247,37 @@ class RecitationTracker {
     return b;
   }
 
+  /// هل قُرئت الكلمة [k] بحرف مختلف حقاً؟ نعم إن لم يفسّر الفرقَ اختلافُ الإملاء،
+  /// ولم تأتِ الكلمة صحيحة في أي من البدائل التي سمعها التعرّف.
+  bool _wrongLetters(String heard, int k) {
+    final want = _words[k];
+    if (want.length < 3 || spellingVariant(heard, want)) return false;
+    for (final alt in _alts) {
+      for (final w in alt) {
+        if (spellingVariant(w, want)) return false;
+      }
+    }
+    return true;
+  }
+
+  /// يبحث خلف الموضع (حتى 40 كلمة) عن ثلاث كلمات متتالية تطابق المسموع: القارئ يكرر.
+  (int, int)? _findBehind(List<String> heard, int i) {
+    const need = 3;
+    if (i + need > heard.length) return null;
+    final start = (pos - 40).clamp(0, _words.length);
+    for (var j = pos - 1; j >= start; j--) {
+      var ok = true;
+      for (var k = 0; k < need; k++) {
+        if (j + k >= _words.length || !similarWord(heard[i + k], _words[j + k])) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) return (j + need, need);
+    }
+    return null;
+  }
+
   /// يبحث أمام الموضع عن تطابق كلمات متتالية تبدأ بالكلمة [i] من المسموع.
   (int, int)? _findAhead(List<String> heard, int i) {
     const window = 160;
@@ -248,6 +298,29 @@ class RecitationTracker {
     }
     return null;
   }
+}
+
+/// الكلمتان واحدة وإن اختلف رسمهما: الرسم والإملاء والتعرّف على الكلام تختلف في
+/// حروف المد والهمزات (الصلوة/الصلاة، شيـًٔا/شيئا، إسرٰءيل/إسرائيل)، وفي الحرف
+/// المشدد يُكتب مرة أو مرتين، وفي الواو والفاء أول الكلمة، والهاء والتاء المربوطة آخرها.
+/// ما عدا ذلك (حرف صحيح مكان آخر: «يعملون» و«تعملون») فرق حقيقي في القراءة.
+bool spellingVariant(String a, String b) {
+  if (a == b) return true;
+  return _skeleton(a) == _skeleton(b);
+}
+
+final _weak = RegExp('[اأإآٱءئؤوىي]');
+
+String _skeleton(String s) {
+  var t = s;
+  if (t.length > 3 && (t.startsWith('و') || t.startsWith('ف'))) t = t.substring(1);
+  if (t.endsWith('ه') || t.endsWith('ة') || t.endsWith('ت') && t.length > 4) t = t.substring(0, t.length - 1);
+  t = t.replaceAll(_weak, '');
+  final out = StringBuffer();
+  for (var i = 0; i < t.length; i++) {
+    if (i == 0 || t[i] != t[i - 1]) out.write(t[i]);
+  }
+  return out.toString();
 }
 
 /// تطابق كلمتين مع تسامح يسير: الواو والفاء في أولها، والألف داخل الكلمة

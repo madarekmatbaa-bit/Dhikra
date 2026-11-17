@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -6,10 +8,11 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../util/arabic.dart';
 import '../widgets/brand.dart';
-import 'adhkar_tab.dart';
+import 'adhkar_list.dart';
+import 'book_reader.dart';
+import 'prayer_tab.dart';
 import 'benefit_edit.dart';
 import 'home_shell.dart';
-import 'library_tab.dart';
 import 'quran_tab.dart';
 import 'reader.dart';
 import 'settings.dart';
@@ -23,26 +26,25 @@ class TodayScreen extends StatelessWidget {
     final s = context.watch<AppState>();
     final pal = Palette.of(context);
     final now = s.clock();
-    final yesterday = dateOnly(now).subtract(const Duration(days: 1));
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
         children: [
-          Row(children: [
-            const BrandMark(size: 30),
-            const SizedBox(width: 10),
-            const Text('ذِكرى',
-                style: TextStyle(fontFamily: readingFont, fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.olive)),
-            const Spacer(),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  // التاريخ كرأس صفحة في دفتر: الهجري بخط النسخ، والميلادي تحته.
+                  Text(hijriLong(now), style: const TextStyle(fontFamily: readingFont, fontSize: 26, fontWeight: FontWeight.w700, height: 1.35)),
+                  Text(gregorianLong(now), style: TextStyle(color: pal.muted, fontSize: 14)),
+                ]),
+              ),
+            ),
             IconButton(
               tooltip: 'دفتر الفوائد',
               icon: const Icon(Icons.bookmark_border),
               onPressed: () => openBenefitsPage(context),
-            ),
-            IconButton(
-              tooltip: 'الإحصاءات',
-              icon: const Icon(Icons.calendar_month_outlined),
-              onPressed: () => openStatsPage(context),
             ),
             IconButton(
               tooltip: 'الإعدادات',
@@ -51,12 +53,6 @@ class TodayScreen extends StatelessWidget {
             ),
           ]),
           const SizedBox(height: 18),
-          // التاريخ كرأس صفحة: الهجري بخط النسخ، والميلادي تحته.
-          Text(hijriLong(now), style: const TextStyle(fontFamily: readingFont, fontSize: 27, fontWeight: FontWeight.w700, height: 1.35)),
-          Text(gregorianLong(now), style: TextStyle(color: pal.muted, fontSize: 14)),
-          const SizedBox(height: 14),
-          const Ornament(),
-          const SizedBox(height: 20),
           if (s.update != null) ...[
             SectionCard(
               color: pal.highlight,
@@ -70,149 +66,68 @@ class TodayScreen extends StatelessWidget {
                 ),
               ]),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
           ],
-          if (s.quran.enabled) ...[
-            const QuranTodayCard(compact: true),
-            const SizedBox(height: 12),
-          ],
-          const _WirdCard(),
-          if (s.canExcuseYesterday) ...[
-            const SizedBox(height: 12),
-            SectionCard(
-              color: pal.highlight,
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('فاتك ورد أمس', style: TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
-                const SizedBox(height: 4),
-                const Text('لك يوم عذر واحد في الأسبوع لا ينقطع به خطك.', style: TextStyle(fontSize: 14)),
-                const SizedBox(height: 10),
-                Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: OutlinedButton(
-                    onPressed: () => s.excuse(yesterday),
-                    child: const Text('احسب أمس يوم عذر'),
-                  ),
-                ),
-              ]),
-            ),
-          ],
-          const SizedBox(height: 12),
-          _StatsStrip(state: s),
-          for (final b in s.library.books.where((b) => !b.finished)) ...[
-            const SizedBox(height: 12),
-            BookCard(book: b, compact: true),
-          ],
-          if (!s.quran.enabled) ...[
-            const SizedBox(height: 12),
-            SectionCard(
-              color: pal.soft,
-              onTap: () => onOpenTab(1),
-              child: Row(children: [
-                const Icon(Icons.auto_stories_outlined, color: AppColors.olive),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text('أضف ورد حفظ القرآن ومراجعته: الجديد والقريب والبعيد.', style: TextStyle(fontSize: 15)),
-                ),
-                Icon(Icons.chevron_left, color: pal.muted),
-              ]),
-            ),
-          ],
-          const SizedBox(height: 12),
-          const PrayerTimesCard(compact: true),
-          const SizedBox(height: 12),
+          _SectionHead('وِرد اليوم', trailing: _doneSummary(s)),
+          const _Ledger(),
+          const SizedBox(height: 22),
+          _SectionHead('الصلاة', onMore: () => onOpenTab(3), more: 'المواقيت والقبلة'),
+          PrayerTimesCard(onTap: () => onOpenTab(3)),
+          const SizedBox(height: 22),
+          const _SectionHead('الأذكار'),
           const _AdhkarRow(),
-          const SizedBox(height: 12),
+          const SizedBox(height: 22),
           _BenefitOfDay(onOpenTab: onOpenTab),
         ],
       ),
     );
   }
+
+  static String? _doneSummary(AppState s) {
+    var total = 0, done = 0;
+    if (s.quran.enabled && s.quran.today != null && !s.quran.today!.isEmpty) {
+      total++;
+      if (s.quran.today!.done) done++;
+    }
+    if (!s.finished) {
+      total++;
+      if (s.todayLog?.done ?? false) done++;
+    }
+    for (final b in s.library.books.where((b) => !b.finished)) {
+      total++;
+      if (s.library.todayOf(b.id)?.done ?? false) done++;
+    }
+    if (total == 0) return null;
+    return done == total ? 'تمّ كله، تقبّل الله' : '$done من $total';
+  }
 }
 
-class _WirdCard extends StatelessWidget {
-  const _WirdCard();
+class _SectionHead extends StatelessWidget {
+  final String title;
+  final String? trailing;
+  final VoidCallback? onMore;
+  final String? more;
+  const _SectionHead(this.title, {this.trailing, this.onMore, this.more});
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watch<AppState>();
     final pal = Palette.of(context);
-    final scheme = Theme.of(context).colorScheme;
-
-    if (s.finished) {
-      return SectionCard(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('ختمت صحيح البخاري', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          Text('الحمد لله الذي بنعمته تتم الصالحات. عدد ختماتك: ${s.khatmas}.', style: const TextStyle(fontSize: 15)),
-          const SizedBox(height: 14),
-          FilledButton(onPressed: s.newKhatma, child: const Text('ابدأ ختمة جديدة')),
-        ]),
-      );
-    }
-
-    final log = s.todayLog;
-    final target = log?.target ?? s.plan!.perDay;
-    final read = (log?.readCount ?? 0).clamp(0, target);
-    final done = log?.done ?? false;
-    final from = log?.fromPos ?? s.position;
-    final to = log?.toPos ?? s.position + target - 1;
-    final book = s.bukhari.bookOf(s.position);
-
-    return SectionCard(
-      padding: const EdgeInsets.all(20),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          const Expanded(child: Text('ورد البخاري اليوم', style: TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.45))),
-          if (log?.excused == true && !done)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: pal.highlight, borderRadius: BorderRadius.circular(10)),
-              child: const Text('يوم عذر', style: TextStyle(fontSize: 13)),
-            ),
-        ]),
-        const SizedBox(height: 14),
-        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text('$read', style: TextStyle(fontSize: 40, fontWeight: FontWeight.w700, color: scheme.primary, height: 1)),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(' / $target', style: TextStyle(fontSize: 20, color: pal.muted)),
-          ),
-          const Spacer(),
-          if (done) const Icon(Icons.check_circle, color: AppColors.sage, size: 30),
-        ]),
-        const SizedBox(height: 12),
-        LinearProgressIndicator(
-            value: target == 0 ? 1 : read / target, minHeight: 8, borderRadius: BorderRadius.circular(6)),
-        const SizedBox(height: 12),
-        Text('من الحديث $from إلى $to · كتاب ${book.title}', style: TextStyle(color: pal.muted, fontSize: 14)),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton(
-            onPressed: () => Navigator.push(
-                context, MaterialPageRoute(builder: (_) => ReaderScreen(start: s.position, wirdMode: true))),
-            child: Text(done ? 'أتممت ورد اليوم · زد إن شئت' : read == 0 ? 'ابدأ ورد اليوم' : 'أكمل القراءة'),
-          ),
-        ),
-        if (!done && log?.excused != true && s.excuseAvailable(s.clock()))
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: TextButton(
-              onPressed: () async {
-                final ok = await showDialog<bool>(
-                  context: context,
-                  builder: (c) => AlertDialog(
-                    title: const Text('يوم عذر'),
-                    content: const Text('تحسب اليوم يوم عذر فلا ينقطع خطك. لك يوم واحد في الأسبوع.'),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')),
-                      FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('نعم')),
-                    ],
-                  ),
-                );
-                if (ok == true) await s.excuse(s.clock());
-              },
-              child: const Text('عندي عذر اليوم'),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        Text(title, style: const TextStyle(fontFamily: readingFont, fontSize: 19, fontWeight: FontWeight.w700, height: 1.3)),
+        const SizedBox(width: 10),
+        Expanded(child: Padding(padding: const EdgeInsets.only(bottom: 7), child: Divider(height: 1, color: pal.line))),
+        if (trailing != null) ...[
+          const SizedBox(width: 10),
+          Text(trailing!, style: TextStyle(color: pal.muted, fontSize: 13)),
+        ],
+        if (onMore != null)
+          InkWell(
+            onTap: onMore,
+            child: Padding(
+              padding: const EdgeInsetsDirectional.only(start: 10, top: 2, bottom: 2),
+              child: Text(more ?? 'المزيد', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 13, fontWeight: FontWeight.w500)),
             ),
           ),
       ]),
@@ -220,39 +135,226 @@ class _WirdCard extends StatelessWidget {
   }
 }
 
-/// الخط والختم المتوقع في بطاقة واحدة يفصل بينهما خط رفيع.
-class _StatsStrip extends StatelessWidget {
-  final AppState state;
-  const _StatsStrip({required this.state});
+/// أوراد اليوم سطوراً في ورقة واحدة: القرآن، ثم الحديث، ثم كتب المكتبة.
+class _Ledger extends StatelessWidget {
+  const _Ledger();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<AppState>();
+    final pal = Palette.of(context);
+    final rows = <Widget>[];
+
+    // القرآن
+    final q = s.quran;
+    final qt = q.today;
+    if (!q.enabled || qt == null || qt.isEmpty) {
+      rows.add(_LedgerRow(
+        title: 'القرآن',
+        detail: 'حدّد ورداً يومياً: 10 أو 20 أو 30 صفحة',
+        read: 0,
+        total: 0,
+        done: false,
+        onTap: () => openQuranSetup(context),
+        action: 'حدّد',
+      ));
+    } else {
+      final a = s.quranDb.suraOfPage(qt.pages.first).name, b = s.quranDb.suraOfPage(qt.pages.last).name;
+      rows.add(_LedgerRow(
+        title: 'القرآن',
+        detail: 'ص ${qt.pages.first}–${qt.pages.last} · ${a == b ? a : '$a إلى $b'}',
+        read: qt.readCount,
+        total: qt.pages.length,
+        done: qt.done,
+        onTap: () => openQuranWird(context),
+        onCheck: () => q.markDone(!qt.done),
+      ));
+    }
+
+    // الحديث
+    final title = s.hadith.current.title;
+    if (s.finished) {
+      final next = s.nextCollection;
+      rows.add(_LedgerRow(
+        title: title,
+        detail: next == null ? 'ختمت الكتب الستة، الحمد لله' : 'ختمته، الحمد لله. التالي: ${next.title}',
+        read: 1,
+        total: 1,
+        done: true,
+        action: next == null ? 'من جديد' : 'ابدأ',
+        onTap: () => next == null ? s.newKhatma() : s.switchCollection(next.id, carryOver: true),
+      ));
+    } else {
+      final log = s.todayLog;
+      final target = log?.target ?? s.plan!.perDay;
+      final read = (log?.readCount ?? 0).clamp(0, target);
+      final from = log?.fromPos ?? s.position;
+      final to = log?.toPos ?? s.position + target - 1;
+      rows.add(_LedgerRow(
+        title: title,
+        detail: 'الحديث $from–$to · كتاب ${s.hadith.bookOf(s.position).title}',
+        read: read,
+        total: target,
+        done: log?.done ?? false,
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReaderScreen(start: s.position, wirdMode: true))),
+      ));
+    }
+
+    // الكتب
+    for (final b in s.library.books.where((b) => !b.finished)) {
+      final t = s.library.todayOf(b.id);
+      final target = t?.target ?? b.perDay;
+      rows.add(_LedgerRow(
+        title: b.title,
+        detail: t == null ? '$target صفحات' : 'ص ${t.fromPos}–${t.toPos}',
+        read: (t?.readCount ?? 0).clamp(0, target),
+        total: target,
+        done: t?.done ?? false,
+        onTap: b.fileExists
+            ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookReader(book: b)))
+            : () => onOpenLibrary(context),
+      ));
+    }
+
+    return Card(
+      child: Column(children: [
+        for (var i = 0; i < rows.length; i++) ...[
+          if (i > 0) Divider(height: 1, indent: 62, color: pal.line),
+          rows[i],
+        ],
+      ]),
+    );
+  }
+
+  static void onOpenLibrary(BuildContext context) => HomeShellTabs.open?.call(4);
+}
+
+/// سطر ورد: حلقة تمتلئ بقدر ما قرأ، والعنوان بخط النسخ، والتفصيل تحته.
+class _LedgerRow extends StatelessWidget {
+  final String title;
+  final String detail;
+  final int read;
+  final int total;
+  final bool done;
+  final VoidCallback onTap;
+  final VoidCallback? onCheck;
+  final String? action;
+  const _LedgerRow({
+    required this.title,
+    required this.detail,
+    required this.read,
+    required this.total,
+    required this.done,
+    required this.onTap,
+    this.onCheck,
+    this.action,
+  });
 
   @override
   Widget build(BuildContext context) {
     final pal = Palette.of(context);
-    final f = state.forecast;
-    Widget cell(String value, String label, String? sub) => Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    final ring = GestureDetector(
+      onTap: onCheck,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: SizedBox.square(
+          dimension: 30,
+          child: CustomPaint(
+            painter: _RingPainter(
+              value: done ? 1 : (total == 0 ? 0 : read / total),
+              done: done,
+              track: pal.line,
+              empty: total == 0,
+            ),
+          ),
+        ),
+      ),
+    );
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 16, 12),
+        child: Row(children: [
+          ring,
+          const SizedBox(width: 12),
+          Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label, style: TextStyle(color: pal.muted, fontSize: 13)),
-              const SizedBox(height: 2),
-              Text(value, style: const TextStyle(fontFamily: readingFont, fontSize: 20, fontWeight: FontWeight.w700, height: 1.4)),
-              if (sub != null) Text(sub, style: TextStyle(color: pal.muted, fontSize: 12)),
+              Text(title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontFamily: readingFont,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      height: 1.4,
+                      color: done ? pal.muted : null,
+                      decoration: done ? TextDecoration.lineThrough : null,
+                      decorationColor: pal.muted)),
+              Text(detail, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.muted, fontSize: 13)),
             ]),
           ),
-        );
-    return SectionCard(
-      padding: EdgeInsets.zero,
-      child: IntrinsicHeight(
-        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          cell(daysWord(state.currentStreak), 'خطك الحالي', null),
-          VerticalDivider(width: 1, color: pal.line),
-          f == null
-              ? cell('تم الختم', 'الختم', null)
-              : cell(gregorianFull(f.date), 'الختم المتوقع', 'بعد ${daysWord(f.days)}${f.fromActualRate ? ' بمعدلك الفعلي' : ''}'),
+          const SizedBox(width: 8),
+          if (action != null)
+            Text(action!, style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 14, fontWeight: FontWeight.w700))
+          else if (!done)
+            Text('$read/$total', style: TextStyle(color: pal.muted, fontSize: 14, fontFeatures: const [FontFeature.tabularFigures()])),
         ]),
       ),
     );
   }
+}
+
+class _RingPainter extends CustomPainter {
+  final double value;
+  final bool done;
+  final bool empty;
+  final Color track;
+  _RingPainter({required this.value, required this.done, required this.track, required this.empty});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final r = size.width / 2 - 2;
+    if (done) {
+      canvas.drawCircle(c, r + 1, Paint()..color = AppColors.sage);
+      final p = Path()
+        ..moveTo(c.dx - r * 0.42, c.dy + r * 0.02)
+        ..lineTo(c.dx - r * 0.1, c.dy + r * 0.34)
+        ..lineTo(c.dx + r * 0.45, c.dy - r * 0.32);
+      canvas.drawPath(p, Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round);
+      return;
+    }
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..color = track;
+    canvas.drawCircle(c, r, stroke);
+    if (empty) {
+      final plus = Paint()
+        ..color = AppColors.wheat
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(Offset(c.dx - r * 0.4, c.dy), Offset(c.dx + r * 0.4, c.dy), plus);
+      canvas.drawLine(Offset(c.dx, c.dy - r * 0.4), Offset(c.dx, c.dy + r * 0.4), plus);
+      return;
+    }
+    if (value > 0) {
+      canvas.drawArc(Rect.fromCircle(center: c, radius: r), -pi / 2, 2 * pi * value.clamp(0, 1), false, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.6
+        ..strokeCap = StrokeCap.round
+        ..color = AppColors.wheat);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RingPainter o) => o.value != value || o.done != done || o.track != track || o.empty != empty;
 }
 
 class _BenefitOfDay extends StatelessWidget {
@@ -264,35 +366,31 @@ class _BenefitOfDay extends StatelessWidget {
     final s = context.watch<AppState>();
     final pal = Palette.of(context);
     final b = s.benefitOfTheDay;
-    if (b == null) {
-      return SectionCard(
-        color: pal.soft,
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BenefitEditScreen())),
-        child: Row(children: [
-          const Icon(Icons.edit_note, color: AppColors.olive),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Text('دفتر الفوائد فارغ. ما يستوقفك أثناء القراءة احفظه هنا.', style: TextStyle(fontSize: 15)),
-          ),
-          Icon(Icons.chevron_left, color: pal.muted),
-        ]),
-      );
-    }
-    return SectionCard(
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BenefitEditScreen(benefit: b))),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          const Label('من دفترك'),
-          const Spacer(),
-          TextButton(onPressed: () => openBenefitsPage(context), child: const Text('كل الفوائد')),
-        ]),
-        if (b.title.isNotEmpty) Text(b.title, style: const TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.45)),
-        const SizedBox(height: 4),
-        Text(b.body, maxLines: 4, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
-        const SizedBox(height: 8),
-        Text(b.sourceLabel, style: TextStyle(color: pal.muted, fontSize: 13)),
-      ]),
-    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _SectionHead('من دفترك', onMore: () => openBenefitsPage(context), more: 'كل الفوائد'),
+      InkWell(
+        onTap: () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => b == null ? const BenefitEditScreen() : BenefitEditScreen(benefit: b))),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsetsDirectional.fromSTEB(16, 4, 4, 4),
+          decoration: const BoxDecoration(border: BorderDirectional(start: BorderSide(color: AppColors.wheat, width: 3))),
+          child: b == null
+              ? Text('ما يستوقفك أثناء القراءة احفظه هنا: حدّد الجملة واضغط «فائدة».',
+                  style: TextStyle(color: pal.muted, fontSize: 15, height: 1.7))
+              : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  if (b.title.isNotEmpty)
+                    Text(b.title, style: const TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.5)),
+                  Text(b.body,
+                      maxLines: 5,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontFamily: readingFont, fontSize: 17, height: 1.8)),
+                  const SizedBox(height: 4),
+                  Text(b.sourceLabel, style: TextStyle(color: pal.muted, fontSize: 12.5)),
+                ]),
+        ),
+      ),
+    ]);
   }
 }
 
@@ -304,7 +402,7 @@ class _AdhkarRow extends StatelessWidget {
     final s = context.watch<AppState>();
     final pal = Palette.of(context);
     Widget cell(AdhkarSet set, String label) {
-      final done = s.adhkarDone(set);
+      final done = set != AdhkarSet.prayer && s.adhkarDone(set);
       return Expanded(
         child: InkWell(
           onTap: () => openAdhkar(context, set),
@@ -324,11 +422,13 @@ class _AdhkarRow extends StatelessWidget {
       padding: EdgeInsets.zero,
       child: IntrinsicHeight(
         child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          cell(AdhkarSet.morning, 'أذكار الصباح'),
+          cell(AdhkarSet.morning, 'الصباح'),
           VerticalDivider(width: 1, color: pal.line),
-          cell(AdhkarSet.evening, 'أذكار المساء'),
+          cell(AdhkarSet.evening, 'المساء'),
           VerticalDivider(width: 1, color: pal.line),
-          cell(AdhkarSet.sleep, 'أذكار النوم'),
+          cell(AdhkarSet.prayer, 'بعد الصلاة'),
+          VerticalDivider(width: 1, color: pal.line),
+          cell(AdhkarSet.sleep, 'النوم'),
         ]),
       ),
     );
