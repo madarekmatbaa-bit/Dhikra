@@ -166,6 +166,20 @@ class PhonemeTracker {
     words.addAll(initial);
     _state = List.filled(words.length, 0, growable: true);
     _link(0);
+    _number(0);
+  }
+
+  /// ترتيب آية كل كلمة في النص المنتظر (البسملة من آيتها التالية)، ليُعرف تخطّي آية كاملة.
+  final _ord = <int>[];
+  void _number(int from) {
+    for (var w = from; w < words.length; w++) {
+      if (w == 0) {
+        _ord.add(0);
+      } else {
+        final a = words[w - 1].key, b = words[w].key;
+        _ord.add(_ord[w - 1] + (a != b && a > 0 ? 1 : 0));
+      }
+    }
   }
 
   /// صامت في آخر كلمة هو نفسه أول التالية (إدغام: «فَمَن يُّجير» = «فَمَي» + «يُجير») يُسمع مرة
@@ -185,6 +199,7 @@ class PhonemeTracker {
     words.addAll(more);
     _state.addAll(List.filled(more.length, 0));
     _link(n);
+    _number(n);
     _dirty = true;
   }
 
@@ -209,6 +224,57 @@ class PhonemeTracker {
 
   /// هل طابق شيء مما سُمع النصَّ؟
   bool everMatched = false;
+
+  /// ثبت موضع القارئ (قرأ كلمات متتالية صحيحة): من الآن يلزمه ترتيب الآيات، فلا يُتبع إلى آية
+  /// ليست التالية لما قرأ، بل يُنبَّه ويبقى الموضع حيث وقف. الرجوع لإعادة ما سبق مباح.
+  bool engaged = false;
+
+  /// هل يُلزم القارئ بترتيب الآيات بعد ثبوت موضعه؟
+  bool strictOrder = true;
+
+  /// أول كلمة بعد آخر ما قُرئ صحيحاً: منها يكمل القارئ.
+  int resumeAt = 0;
+
+  int _orderBreaks = 0;
+
+  /// هل انتقل القارئ إلى غير الآية التالية منذ آخر سؤال؟
+  bool takeOrderBreak() {
+    final b = _orderBreaks > 0;
+    _orderBreaks = 0;
+    return b;
+  }
+
+  /// آخر آية قُرئ منها شيء (أو التي قبل أول النص إن لم يُقرأ شيء).
+  int get lastReadAya {
+    for (var w = math.min(resumeAt, words.length) - 1; w >= 0; w--) {
+      if (words[w].key > 0) return words[w].key;
+    }
+    for (final w in words) {
+      if (w.key > 0) return w.key - 1;
+    }
+    return 0;
+  }
+
+  /// يثبّت خطأ ترتيب عند الكلمة [e] (أو حيث وقف القارئ) ويعود بالسماع إليها.
+  void breakOrder([int? e]) {
+    if (words.isEmpty) return;
+    final at = (e ?? resumeAt).clamp(0, words.length - 1);
+    // العلامة على أول كلمة من آية (لا على البسملة).
+    var m = at;
+    while (m < words.length - 1 && words[m].key < 0) {
+      m++;
+    }
+    _orderBreaks++;
+    _dismissed.remove(m);
+    _state[m] = 2;
+    why[m] = MistakeInfo(MistakeKind.order, null, 0, 0, m, m + 1);
+    if (mistakes.add(m)) _fresh++;
+    startAtIndex(at);
+    _held = true;
+  }
+
+  /// بعد خطأ ترتيب: لا يتحرك موضع الإكمال حتى تتصل قراءة صحيحة (كلمة عابرة تشابهت لا تكفي).
+  bool _held = false;
 
   /// القارئ في موضع لا يطابق ما حول الموضع الحالي: آخر ما سُمع من أصوات، ليُبحث عنه في المصحف.
   List<int>? lostTail;
@@ -787,23 +853,59 @@ class PhonemeTracker {
     final paused = _silent >= _pauseFrames;
     _pending = false;
     // ما رُجع إليه وأُعيد يُحكم عليه بآخر قراءة.
-    var badRun = 0, okAll = 0;
+    var badRun = 0, okAll = 0, okRun = 0;
     var anchored = _anchored;
     bool okAt(int r) => visits[r].complete && !visits[r].jumped && verdicts[r] == null;
+    bool touched(int r) => !visits[r].jumped && visits[r].ops.any((o) => o.type == 0);
+    // ترتيب الآيات: أول زيارة سُمع فيها شيء من آية ليست آية ما قبلها ولا التي تليها.
+    var blockedFrom = visits.length, breakAt = -1, breakSure = false;
+    if (engaged) {
+      var pw = _start - 1, pwDone = true;
+      for (var q = 0; q < visits.length; q++) {
+        if (!touched(q)) continue;
+        final v = visits[q];
+        if (_ord[v.word] - (pw < 0 ? _ord[0] - 1 : _ord[pw]) >= 2) {
+          var ok = 0;
+          for (var r = q; r < visits.length && r <= q + 5; r++) {
+            if (okAt(r)) ok++;
+          }
+          breakSure = ok >= 2;
+          breakAt = pwDone ? pw + 1 : pw;
+          blockedFrom = q;
+          while (blockedFrom > 0 && !touched(blockedFrom - 1)) {
+            blockedFrom--;
+          }
+          break;
+        }
+        pw = v.word;
+        pwDone = v.complete;
+      }
+    }
     for (var q = 0; q < visits.length; q++) {
       final v = visits[q];
       if (!v.complete) continue;
       final info = verdicts[q];
+      if (q >= blockedFrom) {
+        // ما بعد الانتقال لا يُعرض مقروءاً ولا خطأً، ويُعدّ فقط ليُعرف ضياع الموضع.
+        if (!v.jumped) badRun = info == null ? 0 : badRun + 1;
+        continue;
+      }
       if (info == null) {
         if (!v.jumped) {
           anchored = true;
           badRun = 0;
           okAll++;
+          okRun++;
           if (okAll >= 2) everMatched = true;
           _setState(v.word, null);
+          if (okRun >= (_held ? 4 : 3)) {
+            resumeAt = v.word + 1;
+            _held = false;
+          }
         }
         continue;
       }
+      okRun = 0;
       // الكلمة المتروكة ليست ضياعاً للموضع: الضياع كلمات متتالية سُمع مكانها غيرها.
       if (!v.jumped) badRun++;
       // خطأ: يثبت إن صحّ ما بعده (فالقارئ مضى في النص)، أو سكت القارئ بعده وقد صحّ ما قبله.
@@ -842,9 +944,42 @@ class PhonemeTracker {
     }
     // ضاع الموضع: كلمات متتالية لا تطابق، أو لم يطابق شيء أصلاً بعد أصوات كثيرة.
     lostTail = null;
+    if (breakAt >= 0) {
+      if (breakSure) {
+        breakOrder(breakAt);
+        return;
+      }
+      // لم يتبيّن بعد: يبقى الموضع المعروض حيث وقف القارئ.
+      _pending = true;
+      pos = breakAt.clamp(0, words.length - 1);
+    }
     if ((badRun >= 4 || (!everMatched && n >= 30)) && n >= 24) {
       lostTail = [for (var i = math.max(0, n - 40); i < n; i++) _h[i].sym];
     }
+    if (strictOrder && !engaged && okAll >= 5) _engage(visits);
+  }
+
+  /// ثبت الموضع: يُحذف ما سُمع قبل آخر قراءة متصلة، فكل ما بقي بعدها يلزمه الترتيب.
+  void _engage(List<_Visit> visits) {
+    var q = visits.length;
+    while (q > 0 && !visits[q - 1].jumped) {
+      q--;
+    }
+    while (q < visits.length && !visits[q].ops.any((o) => o.type == 0)) {
+      q++;
+    }
+    if (q >= visits.length) return;
+    final v = visits[q];
+    final h = v.ops.firstWhere((o) => o.type == 0).h;
+    engaged = true;
+    if (h == 0 && v.word == _start) return;
+    _h.removeRange(0, h);
+    _start = v.word;
+    _anchored = true;
+    _dirty = true;
+    _window();
+    _computeRows();
+    _visits = _trace();
   }
 
   /// يحذف ما ثبت من أول ما سُمع، ليبقى الحساب صغيراً.
@@ -860,7 +995,7 @@ class PhonemeTracker {
       if (_h.length < 400) return;
       // أصوات كثيرة بلا مطابقة: نبدأ من جديد من الموضع الحالي.
       _h.clear();
-      _start = pos.clamp(0, words.length - 1);
+      _start = (engaged ? resumeAt : pos).clamp(0, words.length - 1);
       _dirty = true;
       _window();
       _computeRows();
@@ -951,6 +1086,7 @@ class PhonemeTracker {
     w = w.clamp(0, words.length - 1);
     _start = w;
     pos = w;
+    resumeAt = w;
     _h.clear();
     _prevId = -1;
     _open = null;

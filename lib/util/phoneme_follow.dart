@@ -23,6 +23,9 @@ class PhonemeFollower {
   /// عُرف موضع القارئ في آية (لإعلامه).
   void Function(int aya, int page)? onLocated;
 
+  /// انتقل القارئ إلى آية ليست التالية لما قرأ: يُنبَّه ويبقى الموضع حيث وقف.
+  void Function()? onWrongPlace;
+
   /// تغيّر شيء خارج [addTop] (بعد بحث أو بناء): حدّث العرض.
   void Function()? onChanged;
 
@@ -145,6 +148,7 @@ class PhonemeFollower {
     _frames += n;
     t.addTop(ids, probs, n, speech: speech);
     final fresh = t.takeFresh();
+    if (t.takeOrderBreak()) onWrongPlace?.call();
     if (t.everMatched) located = true;
     if (!t.finished) {
       final pg = _pageOfWord(t.pos);
@@ -181,11 +185,20 @@ class PhonemeFollower {
     _locating = true;
     try {
       if (isIstiadha(tail)) {
-        t.startAtIndex(t.pos);
+        t.startAtIndex(t.engaged ? t.resumeAt : t.pos);
         return;
       }
       final hit = await locate(tail);
       if (hit == null || !identical(t, tracker)) return;
+      if (t.engaged && hit.$1 > t.lastReadAya + 1) {
+        // بعد أن ثبت الموضع لا يُتبع القارئ إلى آية أبعد من التالية: خطأ ترتيب، ويبقى حيث وقف.
+        t.breakOrder();
+        t.takeOrderBreak();
+        _sync();
+        onWrongPlace?.call();
+        onChanged?.call();
+        return;
+      }
       final p = await pageOfAya(hit.$1);
       if (p == null || !identical(t, tracker)) return;
       if (!located || p != page) onLocated?.call(hit.$1, p);

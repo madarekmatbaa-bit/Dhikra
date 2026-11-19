@@ -34,7 +34,7 @@ class RecitedSegment {
 }
 
 /// نوع الخطأ في كلمة، وما سُمع مكانها، ليُعرض سببه.
-enum MistakeKind { substituted, skipped, letters, harakat }
+enum MistakeKind { substituted, skipped, letters, harakat, order }
 
 class MistakeInfo {
   final MistakeKind kind;
@@ -668,5 +668,7 @@ String explainMistake(MistakeInfo? w, String want) {
       return 'قُرئت «${w.heard}» بحرف مختلف عن «$want».';
     case MistakeKind.harakat:
       return 'قُرئت «${w.heard}» بحركة مختلفة، والصواب «$want».';
+    case MistakeKind.order:
+      return 'انتقلتَ إلى آية أخرى قبل أن تقرأ من هنا. أكمل من هذه الكلمة.';
   }
 }

@@ -489,6 +489,8 @@ class _QuranReaderState extends State<QuranReader> {
     return out;
   }
 
+  DateTime _wrongPlaceAt = DateTime(2000);
+
   Future<PhonemeFollower> _follower() async {
     final had = _follow;
     if (had != null) return had;
@@ -518,6 +520,13 @@ class _QuranReaderState extends State<QuranReader> {
         } else {
           _pc.jumpToPage(p - 1);
         }
+      }
+      ..onWrongPlace = () {
+        // القارئ يكمل في غير موضعه: تنبيه واحد كل بضع ثوانٍ يكفي.
+        final now = DateTime.now();
+        if (!mounted || now.difference(_wrongPlaceAt).inSeconds < 4) return;
+        _wrongPlaceAt = now;
+        toast(context, 'ليست هذه الآية التالية. أكمل من الكلمة المعلَّمة، أو اضغط آية لتبدأ منها.');
       }
       ..onLocated = (aya, p) async {
         final a = await app.quranDb.ayaById(aya);

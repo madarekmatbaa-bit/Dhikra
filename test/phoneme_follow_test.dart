@@ -32,12 +32,14 @@ void main() {
   final basmala = phon[1]!;
 
   late List<int> gotos, locatedAt;
+  var wrongPlace = 0;
   late Set<String> mistakes;
 
   PhonemeFollower make() {
     gotos = [];
     locatedAt = [];
     mistakes = {};
+    wrongPlace = 0;
     late final PhonemeFollower f;
     f = PhonemeFollower(
       tokens: tokens,
@@ -57,6 +59,9 @@ void main() {
       }
       ..onLocated = (aya, p) {
         locatedAt.add(aya);
+      }
+      ..onWrongPlace = () {
+        wrongPlace++;
       }
       ..onRetire = (t) {
         mistakes.addAll([for (final w in t.mistakes) t.displayKey(w)]);
@@ -137,12 +142,41 @@ void main() {
     expect(read(f, 12), isTrue);
   });
 
-  test('آية متروكة في وسط القراءة تُعدّ كلماتها ساقطة', () async {
+  test('آية متروكة في وسط القراءة: خطأ ترتيب ويبقى الموضع عند الآية المتروكة', () async {
     final f = make();
     await f.open(1);
     await recite(f, [for (final a in [1, 2, 3, 5, 6, 7]) fatiha(a)]);
+    expect(wrongPlace, greaterThan(0));
+    expect(f.currentKey, 4);
+    expect(f.tracker!.why[f.tracker!.positionOf('4:0')!]!.kind, MistakeKind.order);
+    expect(read(f, 5), isFalse);
+    expect(read(f, 7), isFalse);
+    // يعود القارئ إلى الآية المتروكة ويكمل: يزول الخطأ.
+    await recite(f, [for (var a = 4; a <= 7; a++) fatiha(a)]);
     f.stop();
-    expect(mistakes, {'4:0', '4:1', '4:2'});
+    expect(mistakes, isEmpty);
+    expect(read(f, 7), isTrue);
+  });
+
+  test('بعد ثبوت الموضع: القراءة من سورة أخرى خطأ ترتيب ولا تُقلب الصفحة', () async {
+    final f = make();
+    await f.open(1);
+    await recite(f, [for (var a = 1; a <= 3; a++) fatiha(a), for (var a = 1; a <= 3; a++) mulkClip(a)]);
+    expect(wrongPlace, greaterThan(0));
+    expect(gotos, isEmpty);
+    expect(f.page, 1);
+    expect(f.currentKey, 4);
+    f.stop();
+    expect(mistakes, {'4:0'});
+  });
+
+  test('بعد خطأ الترتيب: الرجوع إلى آية سابقة مباح', () async {
+    final f = make();
+    await f.open(1);
+    await recite(f, [for (final a in [1, 2, 3, 6, 7, 2, 3, 4, 5, 6, 7]) fatiha(a)]);
+    f.stop();
+    expect(mistakes, isEmpty);
+    expect(read(f, 7), isTrue);
   });
 
   test('إعادة آيتين ثم الإكمال بلا أخطاء', () async {
