@@ -612,7 +612,7 @@ class PhonemeTracker {
   int _endJ = 0;
 
   /// هل كان الصوت [x] محتملاً بين الإطارين؟ (أحد أرجح الرموز فيهما يحويه باحتمال معتبر.)
-  bool _plausible(int x, int fromFrame, int toFrame, [double minP = 0.08]) {
+  bool _plausible(int x, int fromFrame, int toFrame, [double minP = 0.02]) {
     final a = math.max(fromFrame, _topBase), b = math.min(toFrame, _frame - 1);
     for (var f = a; f <= b; f++) {
       final o = (f - _topBase) * _top;
