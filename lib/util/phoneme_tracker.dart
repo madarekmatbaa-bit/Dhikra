@@ -755,6 +755,12 @@ class PhonemeTracker {
   }
 
   void _setState(int w, MistakeInfo? info) {
+    // البسملة بين السورتين قد لا يقرؤها القارئ: تركها ليس خطأً.
+    if (info != null && info.kind == MistakeKind.skipped && words[w].key < 0) {
+      mistakes.remove(w);
+      why.remove(w);
+      return;
+    }
     if (info == null || _dismissed.contains(w)) {
       _state[w] = 1;
       mistakes.remove(w);
@@ -769,6 +775,9 @@ class PhonemeTracker {
   List<_Visit> _visits = const [];
   List<MistakeInfo?> _verdicts = const [];
 
+  /// هل ثبتت قراءة قبل أول ما بقي مما سُمع؟ (فالقفزة بعدها إسقاط لا بدء من وسط الصفحة.)
+  bool _anchored = false;
+
   /// يحكم على الزيارات ويثبّت ما آن أن يثبت.
   void _settle() {
     if (_rowsFor < 0) return;
@@ -781,12 +790,15 @@ class PhonemeTracker {
     _pending = false;
     // ما رُجع إليه وأُعيد يُحكم عليه بآخر قراءة.
     var badRun = 0, okAll = 0;
+    var anchored = _anchored;
+    bool okAt(int r) => visits[r].complete && !visits[r].jumped && verdicts[r] == null;
     for (var q = 0; q < visits.length; q++) {
       final v = visits[q];
       if (!v.complete) continue;
       final info = verdicts[q];
       if (info == null) {
         if (!v.jumped) {
+          anchored = true;
           badRun = 0;
           okAll++;
           if (okAll >= 2) everMatched = true;
@@ -794,20 +806,34 @@ class PhonemeTracker {
         }
         continue;
       }
-      badRun++;
+      // الكلمة المتروكة ليست ضياعاً للموضع: الضياع كلمات متتالية سُمع مكانها غيرها.
+      if (!v.jumped) badRun++;
       // خطأ: يثبت إن صحّ ما بعده (فالقارئ مضى في النص)، أو سكت القارئ بعده وقد صحّ ما قبله.
       final lag = n - 1 - v.lastHeard;
       var okAfter = 0;
       for (var r = q + 1; r < visits.length && r <= q + 4; r++) {
-        if (visits[r].complete && !visits[r].jumped && verdicts[r] == null) okAfter++;
+        if (okAt(r)) okAfter++;
       }
-      var okBefore = false;
-      for (var r = q - 1; r >= 0 && r >= q - 2; r--) {
-        if (visits[r].complete && !visits[r].jumped && verdicts[r] == null) okBefore = true;
+      // ما صحّ قبله من الكلمات الثلاث السابقة (ومنها ما ثبت وحُذف من أول ما سُمع).
+      var okBeforeN = 0;
+      for (var k = 1; k <= 3; k++) {
+        final r = q - k;
+        if (r >= 0) {
+          if (okAt(r)) okBeforeN++;
+        } else {
+          final w = v.word + r;
+          if (w >= 0 && w < _start && _state[w] == 1) okBeforeN++;
+        }
       }
-      if (q == 0 || !okBefore) okBefore = okBefore || (v.word > 0 && v.word - 1 < _start && _state[v.word - 1] == 1);
-      final skippedFar = v.jumped && v.span > _maxSkip;
-      final confirmed = !skippedFar && everMatched && ((okAfter >= 2 && lag >= 6) || (okAfter >= 1 && lag >= 14) || (paused && okBefore && !v.jumped));
+      // قفزة من أول السماع (بدأ القارئ من وسط الصفحة) انتقال لا إسقاط، وكذا القفزة البعيدة.
+      final skippedFar = v.jumped && (v.span > _maxSkip || !anchored);
+      // لا يُحكم بخطأ إلا والقراءة حوله مطابقة للنص: ثلاث كلمات صحيحة قبله وبعده، وإلا فالقارئ
+      // في موضع آخر تشابهت منه كلمة.
+      final around = okBeforeN + okAfter >= 3;
+      final confirmed = !skippedFar &&
+          everMatched &&
+          around &&
+          ((okAfter >= 2 && lag >= 6) || (okAfter >= 1 && lag >= 14) || (paused && okBeforeN >= 2 && !v.jumped));
       if (confirmed) {
         _setState(v.word, info);
       } else {
@@ -847,14 +873,10 @@ class PhonemeTracker {
     final v = _visits[q];
     final firstOp = v.ops.firstWhere((o) => o.h >= 0 && o.type != 2, orElse: () => const _Op(2, -1, 0));
     if (firstOp.h <= 0 || v.jumped) return;
-    for (var r = 0; r < q; r++) {
-      // ما لم يثبت قبل نقطة الحذف يثبت الآن بحكمه.
-      if (_visits[r].complete && _verdicts[r] != null && everMatched && !(_visits[r].jumped && _visits[r].span > _maxSkip)) {
-        _setState(_visits[r].word, _verdicts[r]);
-      }
-    }
+    // ما لم يثبته [_settle] قبل نقطة الحذف (وقد سُمع بعده عشر كلمات) لا يثبت: لم تصحّ القراءة حوله.
     _h.removeRange(0, firstOp.h);
     _start = v.word;
+    _anchored = true;
     final drop = (_frame - 400 - _topBase).clamp(0, _topId.length ~/ _top);
     if (drop > 0) {
       _topId.removeRange(0, drop * _top);
@@ -920,8 +942,10 @@ class PhonemeTracker {
   /// يضع الموضع بعد الكلمة [disp] من الآية [key] (آخر ما سُمع حين عُرف موضع القارئ).
   /// يعيد false إن لم تكن الآية في النص المنتظر.
   bool startAfter(int key, int disp) {
-    var w = words.lastIndexWhere((x) => x.key == key && x.disp <= disp);
+    final w = words.lastIndexWhere((x) => x.key == key && x.disp <= disp);
     if (w < 0) return false;
+    // الموضع هو ما نحن عليه تقريباً: نبقى، فلا يضيع ما سُمع من الكلمة الجارية.
+    if ((w + 1 - pos).abs() <= 2 && everMatched) return true;
     startAtIndex(math.min(w + 1, words.length - 1));
     return true;
   }
@@ -935,6 +959,7 @@ class PhonemeTracker {
     _prevId = -1;
     _open = null;
     everMatched = false;
+    _anchored = false;
     lostTail = null;
     for (var i = w; i < words.length; i++) {
       if (_state[i] == 1) _state[i] = 0;
@@ -985,7 +1010,14 @@ class PhonemeLocator {
   final Uint16List _text;
   final Int32List _aya; // رقم الآية العام لكل صوت
   final Int32List _word; // رقم الكلمة المعروضة في آيتها
-  PhonemeLocator._(this._text, this._aya, this._word);
+
+  // فهرس الصوامت: كل ثلاثة صوامت متتالية ومواضعها، ليُحصر البحث في مواضع قليلة.
+  final Int32List _cons; // موضع كل صامت في النص
+  final Int64List _keys; // مفاتيح الثلاثيات مرتبة
+  final Int32List _keyPos; // رقم الصامت الأول لكل مفتاح
+  PhonemeLocator._(this._text, this._aya, this._word, this._cons, this._keys, this._keyPos);
+
+  static int _key(int a, int b, int c) => (a << 32) | (b << 16) | c;
 
   /// [ayat]: رقم الآية العام وكلمات أصواتها (مفصولة بمسافات)، بترتيب المصحف.
   factory PhonemeLocator(Iterable<(int, String)> ayat) {
@@ -1001,7 +1033,25 @@ class PhonemeLocator {
         k++;
       }
     }
-    return PhonemeLocator._(Uint16List.fromList(t), Int32List.fromList(a), Int32List.fromList(w));
+    final cons = <int>[
+      for (var i = 0; i < t.length; i++)
+        if (!_isVowel(t[i])) i,
+    ];
+    final n = cons.length - 2;
+    final order = List<int>.generate(n < 0 ? 0 : n, (i) => i);
+    final keyOf = Int64List(order.length);
+    for (var i = 0; i < order.length; i++) {
+      keyOf[i] = _key(t[cons[i]], t[cons[i + 1]], t[cons[i + 2]]);
+    }
+    order.sort((x, y) => keyOf[x].compareTo(keyOf[y]));
+    return PhonemeLocator._(
+      Uint16List.fromList(t),
+      Int32List.fromList(a),
+      Int32List.fromList(w),
+      Int32List.fromList(cons),
+      Int64List.fromList([for (final i in order) keyOf[i]]),
+      Int32List.fromList(order),
+    );
   }
 
   /// أقرب موضع في المصحف لما سُمع: (الآية، الكلمة التي انتهى عندها السماع)، أو null إن لم
@@ -1009,13 +1059,70 @@ class PhonemeLocator {
   (int aya, int word)? locate(List<int> heard) {
     final n = heard.length;
     if (n < 20) return null;
-    final m = _text.length;
+    // المواضع المرشحة: حيث تتوالى ثلاثيات الصوامت المسموعة في النص بالترتيب نفسه.
+    final hc = [
+      for (final c in heard)
+        if (!_isVowel(c)) c,
+    ];
+    final votes = <int, int>{};
+    for (var i = 0; i + 2 < hc.length; i++) {
+      final key = _key(hc[i], hc[i + 1], hc[i + 2]);
+      var lo = 0, hi = _keys.length;
+      while (lo < hi) {
+        final mid = (lo + hi) >> 1;
+        if (_keys[mid] < key) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      for (var k = lo; k < _keys.length && _keys[k] == key && k - lo < 4000; k++) {
+        final d = (_keyPos[k] - i) >> 3;
+        votes[d] = (votes[d] ?? 0) + 1;
+      }
+    }
+    if (votes.isEmpty) return null;
+    // صوت القطعة وجارتها معاً (الإزاحة تنزلق مع صامت زائد أو ناقص).
+    final scored = <(int, int)>[
+      for (final e in votes.entries) (e.value + (votes[e.key + 1] ?? 0), e.key),
+    ]..sort((x, y) => y.$1.compareTo(x.$1));
+    final top = scored.first.$1;
+    if (top < 3) return null;
+    var best = _inf2, bestJ = -1, second = _inf2;
+    final seen = <int>[];
+    var tried = 0;
+    for (final (score, d) in scored) {
+      if (tried >= 40 || score < 3 || score * 3 < top) break;
+      final c0 = (d << 3) - 6;
+      if (seen.any((x) => (x - c0).abs() < 12)) continue;
+      seen.add(c0);
+      tried++;
+      final from = _cons[c0.clamp(0, _cons.length - 1)];
+      final to = _cons[(c0 + hc.length + 28).clamp(0, _cons.length - 1)];
+      final (cost, j) = _scan(heard, math.max(0, from - 4), math.min(_text.length, to + 6));
+      if (j < 0) continue;
+      if (cost < best) {
+        if (bestJ >= 0 && (j - bestJ).abs() > n * 2) second = best;
+        best = cost;
+        bestJ = j;
+      } else if (cost < second && (j - bestJ).abs() > n * 2) {
+        second = cost;
+      }
+    }
+    if (bestJ < 0 || best > n * 2.2) return null; // أكثر من نحو خُمس الأصوات مختلف
+    if (second - best < n * 0.8) return null; // موضعان متشابهان: لا يُجزم
+    return (_aya[bestJ - 1], _word[bestJ - 1]);
+  }
+
+  /// أقل كلفة لمطابقة [heard] كله منتهياً داخل النص [from, to)، وموضع نهايته.
+  (int, int) _scan(List<int> heard, int from, int to) {
+    final n = heard.length;
     var prev = Int32List(n + 1), cur = Int32List(n + 1);
     for (var i = 0; i <= n; i++) {
       prev[i] = i * 10;
     }
-    var best = _inf2, bestJ = -1, second = _inf2;
-    for (var j = 1; j <= m; j++) {
+    var best = _inf2, bestJ = -1;
+    for (var j = from + 1; j <= to; j++) {
       final x = _text[j - 1];
       cur[0] = 0;
       for (var i = 1; i <= n; i++) {
@@ -1026,22 +1133,15 @@ class PhonemeLocator {
         if (e < c) c = e;
         cur[i] = c;
       }
-      final c = cur[n];
-      if (c < best) {
-        // موضع آخر بعيد عن الأفضل السابق: يصير السابق ثانياً.
-        if (bestJ >= 0 && j - bestJ > n * 2) second = best;
-        best = c;
+      if (cur[n] < best) {
+        best = cur[n];
         bestJ = j;
-      } else if (c < second && j - bestJ > n * 2) {
-        second = c;
       }
       final t = prev;
       prev = cur;
       cur = t;
     }
-    if (bestJ < 0 || best > n * 2.2) return null; // أكثر من نحو خُمس الأصوات مختلف
-    if (second - best < n * 0.8) return null; // موضعان متشابهان: لا يُجزم
-    return (_aya[bestJ - 1], _word[bestJ - 1]);
+    return (best, bestJ);
   }
 
   static const _inf2 = 1 << 28;

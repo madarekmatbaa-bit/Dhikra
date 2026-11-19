@@ -15,6 +15,7 @@ import '../services/recitation_listener.dart';
 import '../state/app_state.dart';
 import '../state/quran_review.dart';
 import '../theme.dart';
+import '../util/phoneme_follow.dart';
 import '../util/phoneme_tracker.dart';
 import '../util/quran_locator.dart';
 import '../util/recitation.dart';
@@ -263,12 +264,8 @@ class _QuranReaderState extends State<QuranReader> {
       if (!_phon) await Future.delayed(const Duration(milliseconds: 700)); // النتيجة النهائية الأخيرة
       if (!mounted) return;
       final t = _tracker;
-      final pt = _pt;
-      if (_phon && pt != null) {
-        pt.finish();
-        _mistakeCount += pt.takeFresh();
-        _collectPhon(pt);
-        _syncPhon();
+      if (_phon) {
+        _follow?.stop();
       } else if (t != null) {
         _mistakeCount += t.confirmTentative();
         _pageStates[page] = t.wordStates;
@@ -413,7 +410,7 @@ class _QuranReaderState extends State<QuranReader> {
   }
 
   Future<void> _buildTracker(int p, {int? startKey, int startWord = 0}) async {
-    if (_phon) return _buildPhon(p);
+    if (_phon) return (await _follower()).pageShown(p);
     final pending = _pendingStart;
     if (pending != null && pending.page == p) {
       _pendingStart = null;
@@ -473,22 +470,7 @@ class _QuranReaderState extends State<QuranReader> {
   // ---------- المتابعة بنموذج التلاوة: أصوات تُسمع أثناء القراءة ----------
 
   bool get _phon => _listener is QuranStreamListener;
-  PhonemeTracker? _pt;
-
-  /// حال كل كلمة قُرئت في الجلسة، بمفتاح «الآية:الكلمة» (المفاتيح لا تتكرر بين الصفحات).
-  final _states = <String, WordState>{};
-
-  /// أسباب أخطاء صفحات سابقة، لتُشرح بعد أن يمضي القارئ عنها.
-  final _oldWhy = <String, (MistakeInfo?, String)>{};
-
-  /// أول كلمة من كل صفحة في المتابِع.
-  final _pageFirst = <int, int>{};
-  int _ptLast = 0;
-  int _phonGen = 0;
-  bool _extending = false;
-  int? _autoFlip;
-  (int, int)? _pendingPhon;
-  DateTime _lastLocate = DateTime(2000);
+  PhonemeFollower? _follow;
 
   Future<List<PhonWord>> _phonWords(int p) async {
     final db = context.read<AppState>().quranDb;
@@ -507,140 +489,51 @@ class _QuranReaderState extends State<QuranReader> {
     return out;
   }
 
-  void _collectPhon(PhonemeTracker t) {
-    for (final (key, word) in t.mistakeWords) {
-      if (key > 0) _session.putIfAbsent(key, () => {}).add(word);
-    }
-    for (final w in t.mistakes) {
-      _oldWhy[t.displayKey(w)] = (t.why[w], t.words[w].text);
-    }
-  }
-
-  /// متابِع يبدأ من أول الصفحة [p] ويمتد إلى التي بعدها، فلا ينقطع عند قلب الصفحة.
-  Future<void> _buildPhon(int p) async {
-    final gen = ++_phonGen;
+  Future<PhonemeFollower> _follower() async {
+    final had = _follow;
+    if (had != null) return had;
     final app = context.read<AppState>();
-    final old = _pt;
-    if (old != null) {
-      old.finish();
-      _mistakeCount += old.takeFresh();
-      _collectPhon(old);
-      _states.addAll(old.wordStates);
-    }
-    _states.updateAll((_, v) => v == WordState.current ? WordState.read : v);
-    final tokens = await app.phonemeTokens();
-    final words = await _phonWords(p);
-    final next = p < quranPages ? await _phonWords(p + 1) : const <PhonWord>[];
-    if (!mounted || gen != _phonGen || p != page || words.isEmpty) return;
-    final t = PhonemeTracker(tokens, words);
-    _pageFirst
-      ..clear()
-      ..[p] = 0;
-    _ptLast = p;
-    if (next.isNotEmpty) {
-      _pageFirst[p + 1] = words.length;
-      t.extend(next);
-      _ptLast = p + 1;
-    }
-    final pending = _pendingPhon;
-    _pendingPhon = null;
-    if (pending != null) t.startAfter(pending.$1, pending.$2);
-    setState(() {
-      _pt = t;
-      _syncPhon();
-    });
-  }
-
-  int _pageOfWord(int w) {
-    var best = page;
-    var first = -1;
-    _pageFirst.forEach((p, f) {
-      if (f <= w && f > first) {
-        first = f;
-        best = p;
+    final f = PhonemeFollower(
+      tokens: await app.phonemeTokens(),
+      pageWords: _phonWords,
+      locate: (tail) async {
+        final loc = await app.phonemeLocator();
+        return Isolate.run(() => loc.locate(tail));
+      },
+      pageOfAya: (id) async => (await app.quranDb.ayaById(id))?.page,
+      lastPage: quranPages,
+    );
+    f
+      ..onRetire = (t) {
+        _mistakeCount += t.takeFresh();
+        for (final (key, word) in t.mistakeWords) {
+          if (key > 0) _session.putIfAbsent(key, () => {}).add(word);
+        }
       }
-    });
-    return best;
-  }
-
-  void _syncPhon() {
-    final t = _pt;
-    if (t == null) return;
-    _states.addAll(t.wordStates);
-    _currentKey = t.finished ? null : t.currentKey;
+      ..onChanged = () {
+        if (mounted) setState(() => _currentKey = f.currentKey);
+      }
+      ..onGoto = (p) {
+        if (!mounted || p == page) return;
+        if ((p - page).abs() == 1) {
+          _pc.animateToPage(p - 1, duration: const Duration(milliseconds: 450), curve: Curves.easeInOut);
+        } else {
+          _pc.jumpToPage(p - 1);
+        }
+      }
+      ..onLocated = (aya, p) async {
+        final a = await app.quranDb.ayaById(aya);
+        if (a != null && mounted) toast(context, 'سورة ${app.quranDb.suras[a.sura - 1].name} · الآية ${a.aya}');
+      };
+    return _follow = f;
   }
 
   /// إطارات جديدة من النموذج: يتقدم المتابِع، وتُقلب الصفحة إن عبرها القارئ.
   void _onFrames(Uint8List ids, Float32List probs, int n, bool speech) {
-    final t = _pt;
-    if (!mounted || t == null || !following) return;
-    t.addTop(ids, probs, n, speech: speech);
-    _report(t.takeFresh());
-    if (!t.finished) {
-      final pg = _pageOfWord(t.pos);
-      if (pg != page && _autoFlip != pg && t.everMatched) {
-        _autoFlip = pg;
-        if ((pg - page).abs() == 1) {
-          _pc.animateToPage(pg - 1, duration: const Duration(milliseconds: 450), curve: Curves.easeInOut);
-        } else {
-          _pc.jumpToPage(pg - 1);
-        }
-      }
-      if (pg >= _ptLast && _ptLast < quranPages && !_extending) _extendPhon(t);
-    }
-    if (t.lostTail != null) _locatePhon(t);
-    setState(_syncPhon);
-  }
-
-  Future<void> _extendPhon(PhonemeTracker t) async {
-    _extending = true;
-    try {
-      final p = _ptLast + 1;
-      final more = await _phonWords(p);
-      if (!mounted || !identical(t, _pt) || p != _ptLast + 1 || more.isEmpty) return;
-      _pageFirst[p] = t.words.length;
-      t.extend(more);
-      _ptLast = p;
-    } finally {
-      _extending = false;
-    }
-  }
-
-  /// ما سُمع لا يطابق ما حول الموضع: نبحث عنه في المصحف كله وننتقل إليه.
-  Future<void> _locatePhon(PhonemeTracker t) async {
-    final tail = t.lostTail;
-    if (_locating || tail == null) return;
-    if (DateTime.now().difference(_lastLocate) < const Duration(milliseconds: 1500)) return;
-    _locating = true;
-    try {
-      if (isIstiadha(tail)) {
-        t.startAtIndex(t.pos);
-        return;
-      }
-      final app = context.read<AppState>();
-      final loc = await app.phonemeLocator();
-      final hit = await Isolate.run(() => loc.locate(tail));
-      if (hit == null || !mounted || !following || !identical(t, _pt)) return;
-      final a = await app.quranDb.ayaById(hit.$1);
-      if (a == null || !mounted || !identical(t, _pt)) return;
-      if (!_located || a.page != page) {
-        toast(context, 'سورة ${app.quranDb.suras[a.sura - 1].name} · الآية ${a.aya}');
-      }
-      _located = true;
-      if (t.startAfter(hit.$1, hit.$2)) {
-        setState(_syncPhon);
-      } else {
-        _pendingPhon = hit;
-        if (a.page == page) {
-          await _buildPhon(page);
-        } else {
-          _go(a.page);
-        }
-      }
-    } finally {
-      _lastLocate = DateTime.now();
-      _locating = false;
-    }
+    final f = _follow;
+    if (!mounted || f == null || !following) return;
+    _report(f.addTop(ids, probs, n, speech: speech));
+    setState(() => _currentKey = f.currentKey);
   }
 
   void _afterFinal(RecitationTracker pt, int consumed, int fresh, List<String> words) {
@@ -723,17 +616,12 @@ class _QuranReaderState extends State<QuranReader> {
 
   /// يعرض سبب الخطأ في الكلمة [key] من الصفحة المفتوحة، ويتيح رفعه إن كان النموذج مخطئاً.
   void _explain(String key) {
-    final pt = _pt;
+    final f = _follow;
     if (_phon) {
-      final k = pt?.positionOf(key);
-      final live = k != null && pt!.mistakes.contains(k);
-      final old = _oldWhy[key];
-      if (!live && old == null) return;
-      final word = live ? pt.words[k].text : old!.$2;
-      _showWhy(word, explainMistake(live ? pt.why[k] : old!.$1, word), () {
-        if (live) pt.dismiss(k);
-        _oldWhy.remove(key);
-        _states[key] = WordState.read;
+      final why = f?.whyOf(key);
+      if (f == null || why == null) return;
+      _showWhy(why.$1, explainMistake(why.$2, why.$1), () {
+        final word = f.dismiss(key);
         final aya = int.tryParse(key.split(':').first);
         _session[aya]?.remove(word);
         if (_session[aya]?.isEmpty ?? false) _session.remove(aya);
@@ -786,12 +674,11 @@ class _QuranReaderState extends State<QuranReader> {
   }
 
   void _followFrom(Aya a) {
-    final pt = _pt;
+    final f = _follow;
     if (_phon) {
-      if (pt == null) return;
-      pt.startAtWord(a.id, 0);
-      _located = true;
-      setState(_syncPhon);
+      if (f == null) return;
+      f.startAtAya(a.id);
+      setState(() => _currentKey = f.currentKey);
       return;
     }
     final t = _tracker;
@@ -1023,14 +910,8 @@ class _QuranReaderState extends State<QuranReader> {
             s.quran.setLastPage(i + 1);
             if (widget.portion != null) s.quran.notePage(i + 1);
             if (!following) return;
-            if (_phon && _autoFlip == i + 1) {
-              // قلبها المتابِع نفسه: النص ممتد إليها، فلا يُعاد بناؤه.
-              _autoFlip = null;
-              setState(_syncPhon);
-            } else {
-              _autoFlip = null;
-              _buildTracker(i + 1);
-            }
+            // إن قلبها المتابِع نفسه فالنص ممتد إليها ولا يُعاد بناؤه (يعرف ذلك pageShown).
+            _buildTracker(i + 1);
           },
           itemBuilder: (c, i) => QuranPageView(
             page: i + 1,
@@ -1039,7 +920,7 @@ class _QuranReaderState extends State<QuranReader> {
             highlightSura: widget.highlightSura,
             highlightAya: widget.highlightAya,
             currentKey: following && i + 1 == page ? _currentKey : null,
-            wordStates: _phon ? _states : _pageStates[i + 1],
+            wordStates: _phon ? _follow?.states : _pageStates[i + 1],
             hideText: hideText,
             onAyaTap: following ? _followFrom : null,
             onMistakeTap: _explain,

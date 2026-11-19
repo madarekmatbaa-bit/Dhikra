@@ -331,14 +331,14 @@ class StreamEngine {
   void feed(Float32List pcm) => _to?.send(pcm);
 
   /// ينتظر حتى يُعالج كل ما أُرسل. [reset]: يبدأ النموذج بعدها من جديد (قراءة جديدة).
-  Future<void> drain({bool reset = false}) {
+  Future<void> drain({bool reset = false, Duration timeout = const Duration(seconds: 8)}) {
     final to = _to;
     if (to == null) return Future.value();
     final id = reset ? -(++_mark) : ++_mark;
     final c = Completer<void>();
     _marks[id] = c;
     to.send(id);
-    return c.future.timeout(const Duration(seconds: 8), onTimeout: () {
+    return c.future.timeout(timeout, onTimeout: () {
       _marks.remove(id);
     });
   }

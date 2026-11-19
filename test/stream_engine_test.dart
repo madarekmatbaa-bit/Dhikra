@@ -53,7 +53,7 @@ void main() {
       engine.feed(Float32List.fromList(pcm.sublist(o, (o + 1600).clamp(0, pcm.length))));
     }
     engine.feed(Float32List(16000));
-    await engine.drain();
+    await engine.drain(timeout: const Duration(minutes: 4));
     t.finish();
     final secs = pcm.length / 16000;
     print('تحميل ${loadMs}ms · ${secs.toStringAsFixed(1)}s صوت في ${sw.elapsedMilliseconds}ms · $frames إطاراً');
@@ -62,7 +62,7 @@ void main() {
       print('${t.words[w].text}: ${t.why[w]?.kind} ${t.why[w]?.heard}');
     }
     t.debug?.forEach(print);
-    expect(frames, greaterThan(secs * 20));
+    expect(frames, greaterThan(secs * 24));
     expect(t.pos, words.length);
     expect(t.mistakes, isEmpty);
     engine.dispose();
