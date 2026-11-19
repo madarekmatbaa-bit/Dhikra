@@ -343,11 +343,13 @@ class PhonemeTracker {
   final _jumpSrc = <int, int>{};
   int _rowsFor = -1; // عدد الأصوات المسموعة التي حُسبت صفوفها
 
-  // أزواج متقاربة المخرج يخلط بينها النموذج واللهجات (ذ ز، ث س، ظ ض، ظ ز، ذ ظ، س ص، ت ط، د ض):
+  // أزواج متقاربة المخرج يخلط بينها النموذج واللهجات (ذ ز، ث س، ظ ض، ظ ز، ذ ظ، س ص، ت ط، د ض،
+  // د ذ، ت ث، ء هـ، ع ح، ح هـ، ح خ):
   // الفرق بينها من التجويد لا من ضبط الكلمة، فلا تُعدّ خطأ قراءة.
   static const _softPairs = <(int, int)>[
     (0x630, 0x632), (0x62B, 0x633), (0x638, 0x636), (0x638, 0x632), (0x630, 0x638), //
-    (0x633, 0x635), (0x62A, 0x637), (0x62F, 0x636),
+    (0x633, 0x635), (0x62A, 0x637), (0x62F, 0x636), (0x62F, 0x630), (0x62A, 0x62B), //
+    (0x621, 0x647), (0x639, 0x62D), (0x62D, 0x647), (0x62D, 0x62E),
   ];
 
   static bool softPair(int a, int b) {
@@ -632,6 +634,21 @@ class PhonemeTracker {
     if (v.jumped) return MistakeInfo(MistakeKind.skipped, null, 0, 0, v.word, v.word + 1);
     var cons = 0, issues = 0, matched = 0, vowelIssues = 0, heardCons = 0;
     final heard = <int>[];
+    // أول صامت بعد سكتة: بداية الصوت تُسمع همزة أو يضيع أولها، فلا يُحاسب عليه.
+    var firstCons = -1;
+    for (var k = w.lead; k < w.core; k++) {
+      if (!_isVowel(w.ph[k])) {
+        firstCons = k;
+        break;
+      }
+    }
+    var afterPause = false;
+    for (final o in v.ops) {
+      if (o.h >= 0 && o.type != 2) {
+        afterPause = o.h == 0 ? _h[0].frame < 20 || _start == v.word : _h[o.h].frame - _h[o.h - 1].frame >= 12;
+        break;
+      }
+    }
     for (var q = 0; q < v.ops.length; q++) {
       final o = v.ops[q];
       if (o.type == 1) {
@@ -659,6 +676,7 @@ class PhonemeTracker {
             matched++;
             continue;
           }
+          if (afterPause && k == firstCons && e.sym == _hamza) continue;
           // حرف مكان حرف: خطأ إن وثق النموذج بما سمع ولم يكن المنتظر محتملاً هناك.
           if (!_isVowel(e.sym) && e.conf < 0.5) continue;
           if (_plausible(x, e.frame - 2, e.frame + 2)) continue;
@@ -669,6 +687,9 @@ class PhonemeTracker {
         }
       } else {
         if (!strict || !isCons) continue;
+        // الهاء والهمزة خفيّتان: سقوطهما من السمع ليس إسقاطاً من القراءة.
+        if (x == _hamza || x == 0x647) continue;
+        if (afterPause && k == firstCons) continue;
         // حرف منتظر لم يُسمع: خطأ إن لم يكن محتملاً بين ما سُمع قبله وبعده.
         var a = -1, b = -1;
         for (var p = q - 1; p >= 0; p--) {
@@ -759,14 +780,13 @@ class PhonemeTracker {
     final paused = _silent >= _pauseFrames;
     _pending = false;
     // ما رُجع إليه وأُعيد يُحكم عليه بآخر قراءة.
-    var okRun = 0, badRun = 0, okAll = 0;
+    var badRun = 0, okAll = 0;
     for (var q = 0; q < visits.length; q++) {
       final v = visits[q];
       if (!v.complete) continue;
       final info = verdicts[q];
       if (info == null) {
         if (!v.jumped) {
-          okRun++;
           badRun = 0;
           okAll++;
           if (okAll >= 2) everMatched = true;
@@ -775,7 +795,6 @@ class PhonemeTracker {
         continue;
       }
       badRun++;
-      okRun = 0;
       // خطأ: يثبت إن صحّ ما بعده (فالقارئ مضى في النص)، أو سكت القارئ بعده وقد صحّ ما قبله.
       final lag = n - 1 - v.lastHeard;
       var okAfter = 0;
