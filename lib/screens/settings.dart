@@ -6,13 +6,16 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../db/bukhari_db.dart';
 import '../services/notifications.dart';
+import '../services/quran_asr.dart';
 import '../services/updates.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../util/arabic.dart';
 import '../widgets/brand.dart';
+import 'home_shell.dart';
+import 'asr_download.dart';
+import 'quran_tab.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -29,17 +32,17 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 6, 18, 30),
         children: [
-          const _Head('الورد'),
+          _Head('ورد الحديث · ${s.hadith.current.title}'),
           _Group(children: [
             ListTile(
               title: const Text('أحاديث كل يوم'),
-              subtitle: Text('الختم بعد ${roughDuration((totalHadiths / plan.perDay).ceil())} تقريباً'),
+              subtitle: Text('الختم بعد ${roughDuration((s.hadith.total / plan.perDay).ceil())} تقريباً'),
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 IconButton(
                   icon: const Icon(Icons.remove),
                   onPressed: plan.perDay > 1 ? () => s.setPerDay(plan.perDay - 1) : null,
                 ),
-                Text('${plan.perDay}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                Text('${plan.perDay}', style: const TextStyle(fontFamily: readingFont, fontSize: 19, fontWeight: FontWeight.w700, height: 1.45)),
                 IconButton(
                   icon: const Icon(Icons.add),
                   onPressed: plan.perDay < 200 ? () => s.setPerDay(plan.perDay + 1) : null,
@@ -49,36 +52,36 @@ class SettingsScreen extends StatelessWidget {
             const Divider(),
             ListTile(
               title: const Text('موضعك الحالي'),
-              subtitle: Text('الحديث ${s.position.clamp(1, totalHadiths)} · كتاب ${s.bukhari.bookOf(s.position).title}'),
+              subtitle: Text('الحديث ${s.position.clamp(1, s.hadith.total)} · كتاب ${s.hadith.bookOf(s.position).title}'),
               trailing: const Icon(Icons.edit_outlined),
               onTap: () => _changePosition(context, s),
             ),
             const Divider(),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('إذا فاتك يوم', style: TextStyle(fontSize: 16)),
-                const SizedBox(height: 10),
-                SegmentedButton<String>(
-                  showSelectedIcon: false,
-                  segments: const [
-                    ButtonSegment(value: 'postpone', label: Text('أؤجل الختم')),
-                    ButtonSegment(value: 'compensate', label: Text('أعوّضه مع الغد')),
-                  ],
-                  selected: {s.catchUp},
-                  onSelectionChanged: (v) => s.setCatchUp(v.first),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  s.catchUp == 'postpone'
-                      ? 'تكمل من حيث توقفت بنفس العدد اليومي، ويتأخر موعد الختم.'
-                      : 'يضاف ما فاتك إلى ورد اليوم التالي (حتى ضعفي الورد).',
-                  style: TextStyle(color: pal.muted, fontSize: 13),
-                ),
-              ]),
+            ListTile(
+              title: const Text('سجل الأيام'),
+              subtitle: const Text('التقويم والخط وتقدمك في الكتاب'),
+              trailing: const Icon(Icons.chevron_left),
+              onTap: () => openStatsPage(context),
             ),
           ]),
-          const _Head('التذكير'),
+          const _Head('ورد القرآن'),
+          _Group(children: [
+            ListTile(
+              title: Text(s.quran.enabled ? '${s.quran.perDay} صفحة كل يوم' : 'لم تحدّد ورداً بعد'),
+              subtitle: Text('التذكير: ${quranReminderLabel(s.quran)}'),
+              trailing: const Icon(Icons.chevron_left),
+              onTap: () => openQuranSetup(context),
+            ),
+            const Divider(),
+            SwitchListTile(
+              title: const Text('نموذج التلاوة للتسميع'),
+              subtitle: const Text('يسمعك على الهاتف بلا إنترنت، وهو أدق من خدمة Google'),
+              value: s.quran.useQuranModel,
+              onChanged: s.quran.setUseQuranModel,
+            ),
+            const _ModelTile(),
+          ]),
+          const _Head('تذكير ورد الحديث'),
           _Group(children: [
             SwitchListTile(
               title: const Text('تذكير يومي'),
@@ -147,10 +150,12 @@ class SettingsScreen extends StatelessWidget {
           _Group(children: [
             ListTile(
               leading: const BrandMark(size: 34),
-              title: Text('ذِكرى · الإصدار 0.4${appBuild > 0 ? ' · نسخة $appBuild' : ''}'),
+              title: Text('ذِكرى · الإصدار 1.0${appBuild > 0 ? ' · نسخة $appBuild' : ''}'),
               subtitle: const Text(
                   'نص القرآن وخطه من مجمع الملك فهد لطباعة المصحف الشريف. '
-                  'نص صحيح البخاري من مجموعة بيانات مفتوحة (hadith-api) مأخوذة عن موقع sunnah.com، بترقيم فتح الباري. '
+                  'نصوص الكتب الستة من مجموعات بيانات مفتوحة مأخوذة عن موقع sunnah.com (hadith-api وhadith-json)، والبخاري بترقيم فتح الباري. '
+                  'نموذج سماع التلاوة من Quran-Lab برخصة NPL-1.2 (مجاني لا يُباع)، يعمل بمكتبة ONNX Runtime. '
+                  'تنبيهه آلي قد يخطئ، ولا يغني عن القراءة على شيخ. '
                   'يعمل التطبيق دون إنترنت، وكل بياناتك على جهازك.'),
               isThreeLine: true,
             ),
@@ -168,7 +173,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _changePosition(BuildContext context, AppState s) async {
-    final ctrl = TextEditingController(text: '${s.position.clamp(1, totalHadiths)}');
+    final ctrl = TextEditingController(text: '${s.position.clamp(1, s.hadith.total)}');
     final n = await showDialog<int>(
       context: context,
       builder: (c) => AlertDialog(
@@ -267,4 +272,53 @@ Future<void> checkUpdateInteractive(BuildContext context) async {
     ),
   );
   if (ok == true) await Updates.download(u);
+}
+
+/// حال نموذج التسميع على الهاتف، مع تنزيله أو حذفه.
+class _ModelTile extends StatefulWidget {
+  const _ModelTile();
+
+  @override
+  State<_ModelTile> createState() => _ModelTileState();
+}
+
+class _ModelTileState extends State<_ModelTile> {
+  bool? installed;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    final v = await QuranAsrModel.installed();
+    if (mounted) setState(() => installed = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final i = installed;
+    if (i == null) return const SizedBox.shrink();
+    return ListTile(
+      title: Text(i ? 'النموذج على الهاتف' : 'النموذج غير منزّل'),
+      subtitle: Text(i ? 'نحو ${QuranAsrModel.approxMb} ميغابايت' : 'يُنزَّل عند أول تسميع، أو الآن'),
+      trailing: i
+          ? TextButton(
+              onPressed: () async {
+                QuranStreamListener.unload();
+                await QuranAsrModel.remove();
+                _check();
+              },
+              child: const Text('احذفه'),
+            )
+          : TextButton(
+              onPressed: () async {
+                await downloadQuranModel(context);
+                _check();
+              },
+              child: const Text('نزّله'),
+            ),
+    );
+  }
 }

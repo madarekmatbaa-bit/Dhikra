@@ -248,7 +248,7 @@ class _TextPage extends StatelessWidget {
               SectionCard(
                 color: pal.highlight,
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('لا يوجد نص في هذه الصفحة', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  const Text('لا يوجد نص في هذه الصفحة', style: TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
                   const SizedBox(height: 6),
                   const Text('قد تكون صفحة فارغة، أو صورة ممسوحة ضوئياً لا يُستخرج منها نص.', style: TextStyle(fontSize: 14)),
                   const SizedBox(height: 10),

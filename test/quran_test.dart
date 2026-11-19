@@ -13,28 +13,26 @@ void main() {
     expect(parseRanges(formatRanges([582, 583, 604])), [582, 583, 604]);
   });
 
-  test('الجديد يتخطى المحفوظ ويمضي في اتجاه الحفظ', () {
-    final d = computeDay(const ReviewConfig(memorized: [1, 2, 3], newNext: 2, newPerDay: 2));
-    expect(d.newPages, [4, 5]);
-    final back = computeDay(const ReviewConfig(memorized: [604], newNext: 604, newPerDay: 1, descending: true));
-    expect(back.newPages, [603]);
+  test('ورد اليوم يمضي بالترتيب ولا يتجاوز آخر المصحف', () {
+    expect(wirdPages(1, 20), [for (var i = 1; i <= 20; i++) i]);
+    expect(wirdPages(595, 20), [for (var i = 595; i <= 604; i++) i]);
+    expect(wirdPages(604, 10), [604]);
   });
 
-  test('القريب آخر ما حُفظ، والبعيد يدور على الباقي', () {
-    final mem = [for (var i = 1; i <= 100; i++) i];
-    final c = ReviewConfig(
-      memorized: mem,
-      recentOrder: [for (var i = 81; i <= 100; i++) i],
-      recentCount: 20,
-      cycleDays: 10,
-      oldNext: 75,
-      newPerDay: 0,
-    );
-    final d = computeDay(c);
-    expect(d.newPages, isEmpty);
-    expect(d.recent, [for (var i = 81; i <= 100; i++) i]);
-    // 80 صفحة قديمة على 10 أيام = 8 في اليوم، تبدأ من 75 وتلتف إلى البداية.
-    expect(d.old, [1, 2, 75, 76, 77, 78, 79, 80]);
+  test('سجل الورد: الصفحات المقروءة والسجلات القديمة', () {
+    final l = QuranLog('2026-11-17', wirdPages(21, 10), reached: 25);
+    expect(l.readCount, 5);
+    final back = QuranLog.fromRow(l.toRow());
+    expect(back.pages, l.pages);
+    expect(back.reached, 25);
+    expect(back.done, false);
+    // سجل مراجعة من الإصدارات السابقة
+    final old = QuranLog.fromRow({
+      'date': '2026-11-01', 'new_pages': '5', 'recent_pages': '1-4', 'old_pages': '100-103',
+      'new_done': 1, 'recent_done': 1, 'old_done': 1,
+    });
+    expect(old.pages, [5, 100, 101, 102, 103]);
+    expect(old.complete, true);
   });
 
   test('نص المصحف مضمّن في التطبيق', () async {

@@ -23,13 +23,23 @@ class Aya {
   final int page;
   final int juz;
   final String text;
-  const Aya(this.id, this.sura, this.aya, this.page, this.juz, this.text);
+
+  /// النص الإملائي المجرد من التشكيل، للبحث.
+  final String plain;
+
+  /// النص الإملائي المشكول (Tanzil) بالكتابة التي يخرجها نموذج التسميع، لمتابعة التلاوة.
+  final String voweled;
+
+  /// أصوات الآية كما تُتلى (وصلاً، وآخرها وقفاً): كلمة صوتية لكل كلمة معروضة، لمتابعة التلاوة.
+  final String phon;
+  const Aya(this.id, this.sura, this.aya, this.page, this.juz, this.text,
+      {this.plain = '', this.voweled = '', this.phon = ''});
 }
 
 /// نص المصحف من مجمع الملك فهد لطباعة المصحف الشريف (رواية حفص، الإصدار 18).
 /// يُنسخ من ملفات التطبيق عند أول تشغيل، وهو للقراءة فقط.
 class QuranDb {
-  static const _version = 1;
+  static const _version = 3;
   late final Database _db;
   late final List<Sura> suras;
   late final String source;
@@ -39,12 +49,19 @@ class QuranDb {
 
   /// نص البسملة كما في أول الفاتحة، دون رقم الآية.
   late final String basmala;
+  late final String basmalaPlain;
+  late final String basmalaVoweled;
+  late final String basmalaPhon;
 
   final _pageCache = <int, List<Aya>>{};
 
   Future<void> open() async {
     final dir = await getDatabasesPath();
     final path = p.join(dir, 'quran_v$_version.db');
+    for (var v = 1; v < _version; v++) {
+      final old = File(p.join(dir, 'quran_v$v.db'));
+      if (old.existsSync()) await old.delete();
+    }
     if (!File(path).existsSync()) {
       await Directory(dir).create(recursive: true);
       final data = await rootBundle.load('assets/data/quran.db');
@@ -61,8 +78,11 @@ class QuranDb {
     juzStart = [for (final r in j) r['p'] as int];
     final m = await _db.query('meta', where: 'key = ?', whereArgs: ['source']);
     source = m.isEmpty ? 'مجمع الملك فهد لطباعة المصحف الشريف' : m.first['value'] as String;
-    final b = await _db.query('ayat', columns: ['text'], where: 'id = 1');
+    final b = await _db.query('ayat', columns: ['text', 'plain'], where: 'id = 1');
     basmala = stripNumber(b.first['text'] as String);
+    basmalaPlain = b.first['plain'] as String;
+    basmalaVoweled = (await _db.query('voweled', where: 'id = 1')).first['text'] as String;
+    basmalaPhon = (await _db.query('phon', where: 'id = 1')).first['words'] as String;
   }
 
   static String stripNumber(String t) => t.replaceFirst(RegExp(r'[  ]*[٠-٩]+$'), '');
@@ -70,10 +90,14 @@ class QuranDb {
   Future<List<Aya>> page(int n) async {
     final c = _pageCache[n];
     if (c != null) return c;
-    final rows = await _db.query('ayat', where: 'page = ?', whereArgs: [n], orderBy: 'id');
+    final rows = await _db.rawQuery(
+        'SELECT a.*, v.text AS voweled, f.words AS phon FROM ayat a JOIN voweled v ON v.id = a.id '
+        'JOIN phon f ON f.id = a.id WHERE a.page = ? ORDER BY a.id',
+        [n]);
     final list = [
       for (final r in rows)
-        Aya(r['id'] as int, r['sura'] as int, r['aya'] as int, r['page'] as int, r['juz'] as int, r['text'] as String),
+        Aya(r['id'] as int, r['sura'] as int, r['aya'] as int, r['page'] as int, r['juz'] as int, r['text'] as String,
+            plain: r['plain'] as String, voweled: r['voweled'] as String, phon: r['phon'] as String),
     ];
     if (_pageCache.length > 40) _pageCache.clear();
     return _pageCache[n] = list;
@@ -111,6 +135,26 @@ class QuranDb {
     return s;
   }
 
+  Future<Aya?> ayaById(int id) async {
+    final rows = await _db.query('ayat', where: 'id = ?', whereArgs: [id]);
+    if (rows.isEmpty) return null;
+    final r = rows.first;
+    return Aya(r['id'] as int, r['sura'] as int, r['aya'] as int, r['page'] as int, r['juz'] as int, r['text'] as String,
+        plain: r['plain'] as String);
+  }
+
+  /// كل الآيات (رقمها وصفحتها ونصها المشكول بكتابة النموذج)، لمعرفة موضع القارئ من كلماته.
+  Future<List<(int, int, String)>> allPlain() async {
+    final rows = await _db.rawQuery('SELECT a.id, a.page, v.text FROM ayat a JOIN voweled v ON v.id = a.id ORDER BY a.id');
+    return [for (final r in rows) (r['id'] as int, r['page'] as int, r['text'] as String)];
+  }
+
+  /// أصوات كل الآيات بترتيب المصحف، لمعرفة موضع القارئ مما سُمع من قراءته.
+  Future<List<(int, String)>> allPhon() async {
+    final rows = await _db.rawQuery('SELECT id, words FROM phon ORDER BY id');
+    return [for (final r in rows) (r['id'] as int, r['words'] as String)];
+  }
+
   /// بحث بسيط في النص المجرد من التشكيل.
   Future<List<Aya>> search(String q, {int limit = 60}) async {
     final n = normalizeArabic(q);
@@ -118,7 +162,8 @@ class QuranDb {
     final rows = await _db.query('ayat', where: 'plain LIKE ?', whereArgs: ['%$n%'], limit: limit, orderBy: 'id');
     return [
       for (final r in rows)
-        Aya(r['id'] as int, r['sura'] as int, r['aya'] as int, r['page'] as int, r['juz'] as int, r['text'] as String),
+        Aya(r['id'] as int, r['sura'] as int, r['aya'] as int, r['page'] as int, r['juz'] as int, r['text'] as String,
+            plain: r['plain'] as String),
     ];
   }
 }

@@ -1,16 +1,14 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../db/quran_db.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
-import '../util/ranges.dart';
+import '../util/arabic.dart';
 import '../widgets/brand.dart';
 import 'quran_tab.dart';
 
-/// تحديد المحفوظ وإعدادات ورد المراجعة.
+/// إعداد ورد القرآن اليومي: كم صفحة كل يوم، ومن أين يبدأ.
 class QuranSetupScreen extends StatefulWidget {
   const QuranSetupScreen({super.key});
 
@@ -19,55 +17,59 @@ class QuranSetupScreen extends StatefulWidget {
 }
 
 class _QuranSetupScreenState extends State<QuranSetupScreen> {
-  late Set<int> memorized;
-  late int newPerDay;
-  late bool descending;
-  late int recentCount;
-  late int cycleDays;
-  final custom = TextEditingController();
+  late int perDay;
+  late int start;
+  bool startChanged = false;
 
   @override
   void initState() {
     super.initState();
-    final c = context.read<AppState>().quran.config;
-    memorized = c.memorized.toSet();
-    newPerDay = c.newPerDay;
-    descending = c.descending;
-    recentCount = c.recentCount;
-    cycleDays = c.cycleDays;
-    custom.text = formatRanges(memorized);
-  }
-
-  @override
-  void dispose() {
-    custom.dispose();
-    super.dispose();
-  }
-
-  void _toggleJuz(QuranDb db, int j) {
-    final pages = db.juzPages(j);
-    setState(() {
-      if (pages.every(memorized.contains)) {
-        memorized.removeAll(pages);
-      } else {
-        memorized.addAll(pages);
-      }
-      custom.text = formatRanges(memorized);
-    });
+    final q = context.read<AppState>().quran;
+    perDay = q.enabled ? q.perDay : 20;
+    final t = q.today;
+    start = t != null && !t.done && t.pages.isNotEmpty ? t.pages.first : q.next;
   }
 
   Future<void> _save() async {
     final s = context.read<AppState>();
-    await s.quran.setup(
-      memorized: memorized.toList()..sort(),
-      newPerDay: newPerDay,
-      descending: descending,
-      recentCount: recentCount,
-      cycleDays: cycleDays,
-    );
+    final first = !s.quran.enabled;
+    await s.quran.setup(perDay: perDay, start: first || startChanged ? start : null);
     if (!mounted) return;
     toast(context, 'حُفظ ورد القرآن');
     Navigator.pop(context);
+  }
+
+  Future<void> _pickStart(QuranDb db) async {
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      builder: (c) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.7,
+        builder: (c, ctrl) => ListView(
+          controller: ctrl,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('ابدأ من أول جزء…', style: TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700)),
+            ),
+            for (var j = 1; j <= 30; j++)
+              ListTile(
+                leading: SizedBox(width: 28, child: Text('$j', style: const TextStyle(fontFamily: readingFont, fontSize: 17))),
+                title: Text('الجزء $j'),
+                subtitle: Text('صفحة ${db.juzPages(j).first} · سورة ${db.suraOfPage(db.juzPages(j).first).name}'),
+                onTap: () => Navigator.pop(c, db.juzPages(j).first),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked != null) {
+      setState(() {
+        start = picked;
+        startChanged = true;
+      });
+    }
   }
 
   @override
@@ -75,108 +77,48 @@ class _QuranSetupScreenState extends State<QuranSetupScreen> {
     final s = context.watch<AppState>();
     final db = s.quranDb;
     final pal = Palette.of(context);
-    final recentN = min(recentCount, memorized.length);
-    final oldN = memorized.length - recentN;
-    final oldPerDay = oldN == 0 ? 0 : (oldN / cycleDays).ceil();
-
+    final days = ((quranPages - start + 1) / perDay).ceil();
+    final fullDays = (quranPages / perDay).ceil();
     return Scaffold(
       appBar: AppBar(title: const Text('ورد القرآن')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 6, 18, 30),
         children: [
-          const _Head('ما تحفظه الآن'),
-          Text('اختر الأجزاء التي تحفظها كاملة، أو اكتب الصفحات بالأرقام.',
-              style: TextStyle(color: pal.muted, fontSize: 14)),
-          const SizedBox(height: 10),
-          Wrap(spacing: 6, runSpacing: 6, children: [
-            for (var j = 1; j <= 30; j++)
-              FilterChip(
-                label: Text('$j'),
-                selected: db.juzPages(j).every(memorized.contains),
-                showCheckmark: false,
-                onSelected: (_) => _toggleJuz(db, j),
+          const _Head('كم صفحة تقرأ كل يوم؟'),
+          Wrap(spacing: 10, runSpacing: 10, children: [
+            for (final n in const [5, 10, 20, 30, 40])
+              ChoiceChip(
+                label: Text('$n صفحة', style: const TextStyle(fontSize: 16)),
+                selected: perDay == n,
+                onSelected: (_) => setState(() => perDay = n),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               ),
           ]),
-          const SizedBox(height: 12),
-          TextField(
-            controller: custom,
-            keyboardType: TextInputType.text,
-            decoration: const InputDecoration(
-              labelText: 'الصفحات المحفوظة',
-              hintText: 'مثال: 1-21, 582-604',
+          const SizedBox(height: 10),
+          Row(children: [
+            const Text('عدد آخر:', style: TextStyle(fontSize: 15)),
+            const SizedBox(width: 8),
+            IconButton.outlined(onPressed: perDay > 1 ? () => setState(() => perDay--) : null, icon: const Icon(Icons.remove)),
+            SizedBox(
+              width: 52,
+              child: Text('$perDay', textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
             ),
-            onChanged: (v) => setState(() => memorized = parseRanges(v).toSet()),
-          ),
-          const SizedBox(height: 6),
+            IconButton.outlined(onPressed: perDay < 100 ? () => setState(() => perDay++) : null, icon: const Icon(Icons.add)),
+          ]),
+          const SizedBox(height: 8),
           Text(
-            memorized.isEmpty
-                ? 'لم تحدد شيئاً بعد. لا بأس إن كنت تبدأ الحفظ من الصفر.'
-                : '${memorized.length} صفحة · ${juzCount(db, memorized.toList())} جزءاً كاملاً',
-            style: TextStyle(color: pal.muted, fontSize: 13),
+            perDay == 20
+                ? 'عشرون صفحة: جزء كل يوم، فتختم في شهر.'
+                : 'تختم المصحف كاملاً في ${daysWord(fullDays)}، ${roughDuration(fullDays)} تقريباً.',
+            style: TextStyle(color: pal.muted, fontSize: 14),
           ),
-          const _Head('الحفظ الجديد كل يوم'),
+          const _Head('من أين تبدأ؟'),
           Card(
-            child: Column(children: [
-              ListTile(
-                title: Text(newPerDay == 0 ? 'لا حفظ جديد، مراجعة فقط' : '$newPerDay ${newPerDay == 1 ? 'صفحة' : 'صفحات'} في اليوم'),
-                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  IconButton(
-                    icon: const Icon(Icons.remove),
-                    onPressed: newPerDay > 0 ? () => setState(() => newPerDay--) : null,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.add),
-                    onPressed: newPerDay < 10 ? () => setState(() => newPerDay++) : null,
-                  ),
-                ]),
-              ),
-              if (newPerDay > 0)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                  child: SegmentedButton<bool>(
-                    segments: const [
-                      ButtonSegment(value: false, label: Text('من أول المصحف')),
-                      ButtonSegment(value: true, label: Text('من آخره (جزء عمّ)')),
-                    ],
-                    selected: {descending},
-                    onSelectionChanged: (v) => setState(() => descending = v.first),
-                  ),
-                ),
-            ]),
-          ),
-          const _Head('مراجعة القريب'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('آخر ما حفظته يُقرأ كل يوم. كم صفحة؟'),
-                const SizedBox(height: 10),
-                Wrap(spacing: 8, children: [
-                  for (final n in const [5, 10, 20, 30])
-                    ChoiceChip(label: Text('$n'), selected: recentCount == n, onSelected: (_) => setState(() => recentCount = n)),
-                ]),
-              ]),
-            ),
-          ),
-          const _Head('مراجعة البعيد'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('يمرّ عليك كل محفوظك القديم مرة كل:'),
-                const SizedBox(height: 10),
-                Wrap(spacing: 8, runSpacing: 8, children: [
-                  for (final d in const [7, 10, 14, 21, 30])
-                    ChoiceChip(label: Text('$d يوماً'), selected: cycleDays == d, onSelected: (_) => setState(() => cycleDays = d)),
-                ]),
-                const SizedBox(height: 10),
-                Text(
-                  oldN == 0
-                      ? 'لا يوجد محفوظ بعيد بعد؛ كل ما تحفظه الآن في «القريب».'
-                      : 'يعني نحو $oldPerDay ${oldPerDay == 1 ? 'صفحة' : 'صفحات'} في اليوم من $oldN صفحة.',
-                  style: TextStyle(color: pal.muted, fontSize: 13),
-                ),
-              ]),
+            child: ListTile(
+              title: Text('صفحة $start · سورة ${db.suraOfPage(start).name}'),
+              subtitle: Text(start == 1 ? 'من أول المصحف' : 'يبقى ${daysWord(days)} على الختم'),
+              trailing: const Icon(Icons.edit_outlined),
+              onTap: () => _pickStart(db),
             ),
           ),
           const _Head('التذكير'),
@@ -189,12 +131,7 @@ class _QuranSetupScreenState extends State<QuranSetupScreen> {
             ),
           ),
           const SizedBox(height: 22),
-          FilledButton(onPressed: _save, child: const Text('حفظ')),
-          const SizedBox(height: 12),
-          Text(
-            'تقسيم «الجديد والقريب والبعيد» طريقة معروفة عند معلّمي التحفيظ. غيّر الأرقام بما يناسب وقتك، والمهم الدوام.',
-            style: TextStyle(color: pal.muted, fontSize: 13, height: 1.7),
-          ),
+          FilledButton(onPressed: _save, child: Text(s.quran.enabled ? 'حفظ' : 'ابدأ الورد')),
         ],
       ),
     );
@@ -209,4 +146,3 @@ class _Head extends StatelessWidget {
   Widget build(BuildContext context) =>
       Padding(padding: const EdgeInsets.fromLTRB(4, 22, 4, 8), child: Label(text));
 }
-

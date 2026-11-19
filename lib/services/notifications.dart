@@ -119,13 +119,13 @@ class Reminders {
     await init();
     await _plugin.cancelAll();
     if (plan.wird != null) {
-      await _daily(1, plan.wird!, 'ذِكرى', 'حان وقت وردك من صحيح البخاري', 'daily_wird', 'تذكير الورد اليومي', 'wird');
+      await _daily(1, plan.wird!, 'ذِكرى', 'حان وقت وردك من الحديث', 'daily_wird', 'تذكير الورد اليومي', 'wird');
     }
     if (plan.sleep != null) {
       await _daily(2, plan.sleep!, 'أذكار النوم', 'قبل أن تنام: أذكار النوم', 'adhkar', 'تذكير الأذكار', 'sleep');
     }
     if (plan.quran != null) {
-      await _daily(3, plan.quran!, 'ذِكرى', 'حان وقت ورد القرآن: الحفظ والمراجعة', 'daily_wird', 'تذكير الورد اليومي',
+      await _daily(3, plan.quran!, 'ذِكرى', 'حان وقت وردك من القرآن', 'daily_wird', 'تذكير الورد اليومي',
           'quran');
     }
     if (plan.library != null) {

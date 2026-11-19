@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 
 import 'db/adhkar_data.dart';
 import 'screens/adhkar_reader.dart';
-import 'screens/adhkar_tab.dart';
+import 'screens/adhkar_list.dart';
 import 'screens/home_shell.dart';
 import 'screens/reader.dart';
 import 'services/notifications.dart';
@@ -59,7 +59,7 @@ void _openFromNotification(AppState state, String payload) {
     HomeShellTabs.open?.call(4);
   } else if (payload == 'prayer') {
     final ctx = navigatorKey.currentContext;
-    if (ctx != null) openAdhkarTab(ctx);
+    if (ctx != null) openPrayerTab(ctx);
   }
 }
 

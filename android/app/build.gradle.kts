@@ -38,6 +38,13 @@ android {
         versionName = flutter.versionName
     }
 
+    // محرّك سماع التلاوة: ONNX Runtime مع واجهة صغيرة تستدعيها dart:ffi.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
+    }
+
     signingConfigs {
         if (keyFile.exists()) {
             create("release") {

@@ -69,7 +69,7 @@ class _PrayerSettingsScreenState extends State<PrayerSettingsScreen> {
         builder: (ctx, sc) => ListView(controller: sc, children: [
           const Padding(
             padding: EdgeInsets.all(16),
-            child: Text('اختر مدينتك', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            child: Text('اختر مدينتك', style: TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.45)),
           ),
           for (final c in cities) ListTile(title: Text(c.name), onTap: () => Navigator.pop(ctx, c)),
         ]),

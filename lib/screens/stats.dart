@@ -37,7 +37,7 @@ class _StatsScreenState extends State<StatsScreen> {
           const SizedBox(height: 16),
           SectionCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Label('التقدم في صحيح البخاري'),
+              Label('التقدم في ${s.hadith.current.title}'),
               const SizedBox(height: 8),
               Text('${(progress * 100).toStringAsFixed(1)}٪',
                   style: TextStyle(fontSize: 30, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.primary)),
@@ -73,7 +73,7 @@ class _StatsScreenState extends State<StatsScreen> {
                 ),
                 Expanded(
                   child: Text('${monthNames[month.month - 1]} ${month.year}',
-                      textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      textAlign: TextAlign.center, style: const TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
                 ),
                 IconButton(
                   icon: const Icon(Icons.chevron_left),
@@ -108,7 +108,7 @@ class _Num extends StatelessWidget {
     return SectionCard(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-        FittedBox(child: Text(value, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700))),
+        FittedBox(child: Text(value, style: const TextStyle(fontFamily: readingFont, fontSize: 20, fontWeight: FontWeight.w700, height: 1.45))),
         Text(label, style: TextStyle(color: Palette.of(context).muted, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
       ]),
     );

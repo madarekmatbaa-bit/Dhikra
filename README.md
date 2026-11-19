@@ -41,9 +41,9 @@
 نص القرآن وخطه من [مجمع الملك فهد لطباعة المصحف الشريف](https://qurancomplex.gov.sa/techquran/dev/) (رواية حفص عن عاصم، الإصدار 18، ملف `hafsData_v18.json` وخط `KFGQPC HAFS Uthmanic Script`). يبنيه `tools/build_quran.py` إلى `assets/data/quran.db` ويتحقق من 114 سورة و6236 آية و604 صفحات وعدد آيات كل سورة.
 
 
-نص صحيح البخاري مأخوذ من مجموعة البيانات المفتوحة [fawazahmed0/hadith-api](https://github.com/fawazahmed0/hadith-api) (إصدار `ara-bukhari`، عن sunnah.com) بترقيم فتح الباري (7563 حديثاً)، وأسماء الكتب من [AhmedBaset/hadith-json](https://github.com/AhmedBaset/hadith-json). لم يُكتب أي نص يدوياً.
+نصوص الكتب الستة في `assets/data/hadith.db` يبنيها `tools/build_hadith.py`: صحيح البخاري من [fawazahmed0/hadith-api](https://github.com/fawazahmed0/hadith-api) (إصدار `ara-bukhari`، عن sunnah.com) بترقيم فتح الباري (7563 حديثاً) وأسماء كتبه من [AhmedBaset/hadith-json](https://github.com/AhmedBaset/hadith-json)، والخمسة الأخرى (مسلم وأبو داود والترمذي والنسائي وابن ماجه) من [AhmedBaset/hadith-json](https://github.com/AhmedBaset/hadith-json) بترتيبها في الكتاب. النص بحركاته مضغوط بـ zlib في القاعدة. لم يُكتب أي نص يدوياً.
 
-نص الأذكار من «حصن المسلم» عبر [osamayy/azkar-db](https://github.com/osamayy/azkar-db)، ويبنيه `tools/build_adhkar.py` إلى `assets/data/adhkar.json`. السكربت `tools/build_db.py` يبني `assets/data/bukhari.db` من الملفين.
+نص الأذكار من «حصن المسلم» عبر [osamayy/azkar-db](https://github.com/osamayy/azkar-db)، ويبنيه `tools/build_adhkar.py` إلى `assets/data/adhkar.json`. 
 
 ## الخطوط
 

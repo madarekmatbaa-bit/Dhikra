@@ -136,9 +136,12 @@ class _BenefitEditScreenState extends State<BenefitEditScreen> {
               padding: const EdgeInsets.only(bottom: 14),
               child: ActionChip(
                 avatar: const Icon(Icons.menu_book_outlined, size: 18),
-                label: Text('البخاري · حديث $sourceRef'),
-                onPressed: () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => ReaderScreen(start: int.tryParse(sourceRef ?? '') ?? 1))),
+                label: Text(hadithRefLabel(sourceRef)),
+                // يفتح الحديث إن كان من الكتاب الذي يقرؤه الآن.
+                onPressed: parseHadithRef(sourceRef).$1 != context.read<AppState>().hadith.currentId
+                    ? null
+                    : () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => ReaderScreen(start: parseHadithRef(sourceRef).$2))),
               ),
             ),
           if ((sourceType == 'book' || sourceType == 'quran') && sourceRef != null)

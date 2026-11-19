@@ -158,7 +158,7 @@ class _BenefitTile extends StatelessWidget {
               ),
               Expanded(
                 child: Text(b.title.isEmpty ? 'فائدة' : b.title,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                    style: const TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
               ),
               PopupMenuButton<String>(
                 icon: Icon(Icons.more_vert, color: pal.muted),

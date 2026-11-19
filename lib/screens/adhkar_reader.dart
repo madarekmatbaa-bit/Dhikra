@@ -6,6 +6,7 @@ import '../db/adhkar_data.dart';
 import '../services/prayer.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/ornaments.dart';
 
 /// قارئ الأذكار: ذكر في كل صفحة، والضغط على البطاقة يعدّ، وعند تمام العدد ينتقل لما بعده.
 class AdhkarReader extends StatefulWidget {
@@ -155,11 +156,11 @@ class _DhikrPage extends StatelessWidget {
         children: [
           AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
+            padding: const EdgeInsets.all(22),
+            // صفحة الذكر بإطار كإطار الكتاب، يخضرّ خطه الذهبي إذا تمّ العدد.
+            decoration: ShapeDecoration(
               color: complete ? pal.soft : pal.card,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: complete ? AppColors.sage : pal.line),
+              shape: BookFrameBorder(line: pal.line, accent: complete ? AppColors.sage : AppColors.wheat),
             ),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Text(
@@ -171,7 +172,10 @@ class _DhikrPage extends StatelessWidget {
                 const SizedBox(height: 14),
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: pal.highlight, borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(
+                    color: pal.highlight,
+                    border: const BorderDirectional(start: BorderSide(color: AppColors.wheat, width: 3)),
+                  ),
                   child: Text(dhikr.virtue, style: const TextStyle(fontSize: 14, height: 1.7)),
                 ),
               ],

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -7,14 +9,42 @@ import '../state/app_state.dart';
 import '../state/quran_review.dart';
 import '../theme.dart';
 import '../util/arabic.dart';
-import '../util/ranges.dart';
 import '../widgets/brand.dart';
+import '../widgets/ornaments.dart';
 import 'quran_notes.dart';
 import 'quran_reader.dart';
 import 'quran_setup.dart';
 
-class QuranTab extends StatelessWidget {
+class QuranTab extends StatefulWidget {
   const QuranTab({super.key});
+
+  @override
+  State<QuranTab> createState() => _QuranTabState();
+}
+
+class _QuranTabState extends State<QuranTab> {
+  final _q = TextEditingController();
+  Timer? _debounce;
+  List<Aya>? hits;
+
+  @override
+  void dispose() {
+    _q.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _onChanged(String v) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () async {
+      if (v.trim().length < 2) {
+        if (mounted) setState(() => hits = null);
+        return;
+      }
+      final r = await context.read<AppState>().quranDb.search(v, limit: 100);
+      if (mounted && _q.text == v) setState(() => hits = r);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,83 +52,157 @@ class QuranTab extends StatelessWidget {
     final q = s.quran;
     final pal = Palette.of(context);
     return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
-        children: [
-          Row(children: [
-            Expanded(child: Text('القرآن الكريم', style: Theme.of(context).textTheme.titleLarge)),
-            IconButton(
-              tooltip: 'الغلطات والمتشابهات',
-              icon: const Icon(Icons.sticky_note_2_outlined),
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const QuranNotesScreen())),
+      child: CustomScrollView(slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          sliver: SliverList.list(children: [
+            Headpiece(
+              title: 'المصحف',
+              actions: [
+                HeadAction(Icons.sticky_note_2_outlined, 'الغلطات والمتشابهات',
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const QuranNotesScreen()))),
+                if (q.enabled) HeadAction(Icons.tune, 'إعدادات الورد', () => openQuranSetup(context)),
+              ],
             ),
-            if (q.enabled)
-              IconButton(
-                tooltip: 'إعدادات المراجعة',
-                icon: const Icon(Icons.tune),
-                onPressed: () => openQuranSetup(context),
-              ),
-          ]),
-          const SizedBox(height: 14),
-          if (!q.enabled) const _Intro() else const QuranTodayCard(),
-          const SizedBox(height: 12),
-          SectionCard(
-            onTap: () => openMushaf(context, q.lastPage),
-            child: Row(children: [
-              CircleAvatar(
-                backgroundColor: pal.soft,
-                child: Icon(Icons.auto_stories_outlined, color: Theme.of(context).colorScheme.primary),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('المصحف', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                  Text('تابع من الصفحة ${q.lastPage} · سورة ${s.quranDb.suraOfPage(q.lastPage).name}',
-                      style: TextStyle(color: pal.muted, fontSize: 13)),
+            const SizedBox(height: 6),
+            const SizedBox(height: 10),
+            if (!q.enabled) const _Intro() else const QuranTodayCard(),
+            const SizedBox(height: 12),
+            // حيث توقفت والتسميع في لوح واحد بنصفين.
+            Card(
+              clipBehavior: Clip.antiAlias,
+              child: IntrinsicHeight(
+                child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Expanded(
+                    child: _HalfTile(
+                      icon: Icons.bookmark_outline,
+                      title: 'حيث توقفت',
+                      detail: 'ص ${q.lastPage} · ${s.quranDb.suraOfPage(q.lastPage).name}',
+                      onTap: () => openMushaf(context, q.lastPage),
+                    ),
+                  ),
+                  VerticalDivider(width: 1, indent: 12, endIndent: 12, color: pal.line),
+                  Expanded(
+                    child: _HalfTile(
+                      icon: Icons.mic_none,
+                      title: 'سمّع من حفظك',
+                      detail: 'يتبعك وينبّهك على الخطأ',
+                      onTap: () => openMushaf(context, q.lastPage, listen: true),
+                    ),
+                  ),
                 ]),
               ),
-              Icon(Icons.chevron_left, color: pal.muted),
-            ]),
-          ),
-          if (q.enabled) ...[
-            const SizedBox(height: 12),
-            Row(children: [
-              Expanded(
-                child: _Tile(
-                  icon: Icons.local_fire_department_outlined,
-                  value: daysWord(q.currentStreak),
-                  label: 'خط المراجعة',
-                ),
+            ),
+            const SizedBox(height: 18),
+            TextField(
+              controller: _q,
+              onChanged: (v) {
+                setState(() {});
+                _onChanged(v);
+              },
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'ابحث في القرآن بكلمة أو أكثر',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _q.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () {
+                          _q.clear();
+                          setState(() => hits = null);
+                        },
+                      ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _Tile(
-                  icon: Icons.menu_book_outlined,
-                  value: '${q.config.memorized.length} صفحة',
-                  label: 'محفوظك من 604',
-                  sub: q.daysToFinish == null ? null : 'الختم حفظاً بعد ${roughDuration(q.daysToFinish!)} تقريباً',
-                ),
-              ),
-            ]),
-          ],
-          const SizedBox(height: 18),
-          Text(
-            'نص المصحف وخطه من ${s.quranDb.source}. اضغط على أي آية لتسجّل غلطة أو متشابهاً أو فائدة.',
-            style: TextStyle(color: pal.muted, fontSize: 13, height: 1.7),
+            ),
+            const SizedBox(height: 18),
+            SectionHead(hits == null ? 'فهرس السور' : hits!.length >= 100 ? 'أول 100 آية' : '${hits!.length} آية'),
+          ]),
+        ),
+        if (hits != null)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            sliver: SliverList.separated(
+              itemCount: hits!.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (c, i) {
+                final a = hits![i];
+                return SectionCard(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                  onTap: () => openMushaf(context, a.page, sura: a.sura, aya: a.aya),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('سورة ${s.quranDb.suras[a.sura - 1].name} · الآية ${a.aya} · ص ${a.page}',
+                        style: TextStyle(color: pal.muted, fontSize: 12.5)),
+                    Text(QuranDb.stripNumber(a.text),
+                        style: const TextStyle(fontFamily: quranFont, fontSize: 20, height: 1.9)),
+                  ]),
+                );
+              },
+            ),
+          )
+        else
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          sliver: SliverToBoxAdapter(
+            child: Card(
+              child: Column(children: [
+                for (final sura in s.quranDb.suras) ...[
+                  if (sura.id > 1) Divider(height: 1, indent: 16, endIndent: 16, color: pal.line),
+                  InkWell(
+                    onTap: () => openMushaf(context, sura.firstPage),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                      child: Row(children: [
+                        Rosette('${sura.id}', size: 32),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text('سورة ${sura.name}',
+                              style: const TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.4)),
+                        ),
+                        Text('${sura.ayat} آية · ص ${sura.firstPage}', style: TextStyle(color: pal.muted, fontSize: 12.5, fontFeatures: const [FontFeature.tabularFigures()])),
+                      ]),
+                    ),
+                  ),
+                ],
+              ]),
+            ),
           ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 }
 
-void openMushaf(BuildContext context, int page, {List<int>? portion, String? title, int? sura, int? aya}) =>
+void openMushaf(BuildContext context, int page,
+        {List<int>? portion,
+        String? title,
+        int? sura,
+        int? aya,
+        Future<void> Function()? onFinish,
+        bool listen = false}) =>
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => QuranReader(page: page, portion: portion, portionTitle: title, highlightSura: sura, highlightAya: aya),
+        builder: (_) => QuranReader(
+          page: page,
+          portion: portion,
+          portionTitle: title,
+          highlightSura: sura,
+          highlightAya: aya,
+          onFinishPortion: onFinish,
+          listenAnywhere: listen,
+        ),
       ),
     );
+
+/// يفتح ورد اليوم في المصحف من حيث وقف فيه.
+void openQuranWird(BuildContext context) {
+  final q = context.read<AppState>().quran;
+  final t = q.today;
+  if (t == null || t.isEmpty) return;
+  final start = t.done || t.reached < t.pages.first ? t.pages.first : t.reached.clamp(t.pages.first, t.pages.last);
+  openMushaf(context, start, portion: t.pages, title: 'ورد اليوم', onFinish: t.done ? null : () => q.markDone(true));
+}
 
 void openQuranSetup(BuildContext context) =>
     Navigator.push(context, MaterialPageRoute(builder: (_) => const QuranSetupScreen()));
@@ -109,42 +213,25 @@ class _Intro extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = Palette.of(context);
-    Widget row(IconData i, String t, String d) => Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(i, color: AppColors.wheat, size: 22),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text.rich(TextSpan(children: [
-                TextSpan(text: '$t: ', style: const TextStyle(fontWeight: FontWeight.w700)),
-                TextSpan(text: d),
-              ]), style: const TextStyle(fontSize: 14, height: 1.6)),
-            ),
-          ]),
-        );
     return SectionCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('ورد الحفظ والمراجعة', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        const Text('ورد يومي من المصحف', style: TextStyle(fontFamily: readingFont, fontSize: 19, fontWeight: FontWeight.w700, height: 1.45)),
         const SizedBox(height: 6),
-        Text('كل يوم ثلاثة أجزاء صغيرة، يحسبها التطبيق لك:', style: TextStyle(color: pal.muted, fontSize: 14)),
-        const SizedBox(height: 12),
-        row(Icons.add_circle_outline, 'الجديد', 'ما تحفظه اليوم، صفحة أو أكثر، أو لا شيء إن كنت تراجع فقط.'),
-        row(Icons.history, 'القريب', 'آخر ما حفظته (20 صفحة مثلاً) يُقرأ كل يوم حتى يثبت.'),
-        row(Icons.autorenew, 'البعيد', 'باقي محفوظك مقسوم على دورة تختارها، فيمرّ كله عليك كل أسبوعين مثلاً.'),
-        const SizedBox(height: 6),
+        Text('تختار عدد الصفحات كل يوم، 10 أو 20 أو 30، ويمضي بك الورد في المصحف بالترتيب حتى تختم ثم يبدأ من جديد.',
+            style: TextStyle(color: pal.muted, fontSize: 14, height: 1.6)),
+        const SizedBox(height: 14),
         SizedBox(
           width: double.infinity,
-          child: FilledButton(onPressed: () => openQuranSetup(context), child: const Text('حدّد محفوظك وابدأ')),
+          child: FilledButton(onPressed: () => openQuranSetup(context), child: const Text('حدّد وردك')),
         ),
       ]),
     );
   }
 }
 
-/// بطاقة ورد القرآن لليوم، تُستعمل هنا وفي شاشة «اليوم».
+/// بطاقة ورد القرآن لليوم، تُستعمل هنا وفي الصفحة الرئيسية.
 class QuranTodayCard extends StatelessWidget {
-  final bool compact;
-  const QuranTodayCard({super.key, this.compact = false});
+  const QuranTodayCard({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -152,91 +239,65 @@ class QuranTodayCard extends StatelessWidget {
     final q = s.quran;
     final pal = Palette.of(context);
     final t = q.today;
-    if (t == null || t.isEmpty) {
+    if (!q.enabled) {
       return SectionCard(
         color: pal.soft,
         onTap: () => openQuranSetup(context),
-        child: const Text('لا شيء في ورد القرآن اليوم. حدّد محفوظك أو صفحات الحفظ الجديد من الإعدادات.',
-            style: TextStyle(fontSize: 15)),
+        child: const Row(children: [
+          Icon(Icons.auto_stories_outlined, color: AppColors.olive),
+          SizedBox(width: 12),
+          Expanded(child: Text('حدّد ورداً يومياً من المصحف: 10 أو 20 أو 30 صفحة.', style: TextStyle(fontSize: 15))),
+          Icon(Icons.chevron_left),
+        ]),
       );
     }
-    Widget part(String title, IconData icon, List<int> pages, bool done, Future<void> Function(bool) mark) {
-      if (pages.isEmpty) return const SizedBox.shrink();
-      return Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: Material(
-          color: done ? pal.soft : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: () => openMushaf(context, pages.first, portion: pages, title: title),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: Row(children: [
-                Icon(icon, color: done ? AppColors.sage : AppColors.wheat),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                    Text(_where(s, pages), style: TextStyle(color: pal.muted, fontSize: 13)),
-                  ]),
-                ),
-                Checkbox(value: done, onChanged: (v) => mark(v ?? false)),
-              ]),
-            ),
-          ),
-        ),
-      );
-    }
-
+    if (t == null || t.isEmpty) return const SizedBox.shrink();
+    final read = t.readCount;
+    final total = t.pages.length;
+    final first = s.quranDb.suraOfPage(t.pages.first).name;
+    final last = s.quranDb.suraOfPage(t.pages.last).name;
     return SectionCard(
-      padding: const EdgeInsets.fromLTRB(16, 16, 12, 12),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          const Expanded(child: Text('ورد القرآن اليوم', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
-          Text('${t.partsDone} / ${t.partsTotal}', style: TextStyle(color: pal.muted, fontSize: 15)),
-          const SizedBox(width: 6),
-          if (t.complete) const Icon(Icons.check_circle, color: AppColors.sage),
+          const Expanded(
+            child: Text('ورد القرآن', style: TextStyle(fontFamily: readingFont, fontSize: 18, fontWeight: FontWeight.w700, height: 1.45)),
+          ),
+          Text(t.done ? 'تمّ' : '$read من $total', style: TextStyle(color: t.done ? AppColors.sage : pal.muted, fontSize: 14, fontWeight: FontWeight.w500)),
         ]),
-        part('الحفظ الجديد', Icons.add_circle_outline, t.newPages, t.newDone, q.markNew),
-        part('مراجعة القريب', Icons.history, t.recent, t.recentDone, q.markRecent),
-        part('مراجعة البعيد', Icons.autorenew, t.old, t.oldDone, q.markOld),
-        if (!compact)
+        const SizedBox(height: 2),
+        Text(
+          'الصفحات ${t.pages.first}–${t.pages.last} · ${first == last ? 'سورة $first' : 'من $first إلى $last'}',
+          style: TextStyle(color: pal.muted, fontSize: 13.5),
+        ),
+        const SizedBox(height: 12),
+        LinearProgressIndicator(value: total == 0 ? 0 : read / total, minHeight: 5, borderRadius: BorderRadius.circular(4)),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(
+            child: FilledButton(
+              onPressed: () => openQuranWird(context),
+              child: Text(t.done ? 'اقرأ مرة أخرى' : read == 0 ? 'ابدأ الورد' : 'أكمل من صفحة ${t.reached}'),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton.outlined(
+            tooltip: t.done ? 'إلغاء الإتمام' : 'قرأته',
+            onPressed: () => q.markDone(!t.done),
+            icon: Icon(t.done ? Icons.check_circle : Icons.check, color: t.done ? AppColors.sage : null),
+          ),
+        ]),
+        if (q.khatmas > 0 || t.done)
           Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Text('اضغط على الجزء لتفتحه في المصحف، وعلّم عليه حين تتمّه.',
-                style: TextStyle(color: pal.muted, fontSize: 12)),
+            child: Text(
+              [
+                if (q.khatmas > 0) 'ختماتك: ${q.khatmas}',
+                'الختم بعد ${daysWord(q.daysToKhatma)}',
+              ].join(' · '),
+              style: TextStyle(color: pal.muted, fontSize: 12.5),
+            ),
           ),
-      ]),
-    );
-  }
-
-  static String _where(AppState s, List<int> pages) {
-    final first = s.quranDb.suraOfPage(pages.first).name;
-    final last = s.quranDb.suraOfPage(pages.last).name;
-    final suras = first == last ? 'سورة $first' : 'من $first إلى $last';
-    return '${describeRanges(pages)} · $suras';
-  }
-}
-
-class _Tile extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-  final String? sub;
-  const _Tile({required this.icon, required this.value, required this.label, this.sub});
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = Palette.of(context);
-    return SectionCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(icon, color: AppColors.wheat),
-        const SizedBox(height: 10),
-        Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-        Text(label, style: TextStyle(color: pal.muted, fontSize: 13)),
-        if (sub != null) Text(sub!, style: TextStyle(color: pal.muted, fontSize: 12)),
       ]),
     );
   }
@@ -251,11 +312,27 @@ Future<void> pickQuranReminder(BuildContext context) async {
 
 String quranReminderLabel(QuranReview q) => q.reminder == null ? 'مطفأ' : formatTime(q.reminder!);
 
-int juzCount(QuranDb db, List<int> memorized) {
-  final m = memorized.toSet();
-  var n = 0;
-  for (var j = 1; j <= 30; j++) {
-    if (db.juzPages(j).every(m.contains)) n++;
+class _HalfTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String detail;
+  final VoidCallback onTap;
+  const _HalfTile({required this.icon, required this.title, required this.detail, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Palette.of(context);
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(icon, color: AppColors.wheat, size: 22),
+          const SizedBox(height: 6),
+          Text(title, style: const TextStyle(fontFamily: readingFont, fontSize: 17, fontWeight: FontWeight.w700, height: 1.4)),
+          Text(detail, maxLines: 2, style: TextStyle(color: pal.muted, fontSize: 12.5, height: 1.5)),
+        ]),
+      ),
+    );
   }
-  return n;
 }
