@@ -154,7 +154,8 @@ class SettingsScreen extends StatelessWidget {
               subtitle: const Text(
                   'نص القرآن وخطه من مجمع الملك فهد لطباعة المصحف الشريف. '
                   'نصوص الكتب الستة من مجموعات بيانات مفتوحة مأخوذة عن موقع sunnah.com (hadith-api وhadith-json)، والبخاري بترقيم فتح الباري. '
-                  'نموذج التسميع Whisper معدّل على تلاوة القرآن من Tarteel، يعمل بمكتبة whisper.cpp. '
+                  'نموذج سماع التلاوة من Quran-Lab برخصة NPL-1.2 (مجاني لا يُباع)، يعمل بمكتبة ONNX Runtime. '
+                  'تنبيهه آلي قد يخطئ، ولا يغني عن القراءة على شيخ. '
                   'يعمل التطبيق دون إنترنت، وكل بياناتك على جهازك.'),
               isThreeLine: true,
             ),
@@ -305,7 +306,7 @@ class _ModelTileState extends State<_ModelTile> {
       trailing: i
           ? TextButton(
               onPressed: () async {
-                QuranAsrListener.unload();
+                QuranStreamListener.unload();
                 await QuranAsrModel.remove();
                 _check();
               },

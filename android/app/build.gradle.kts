@@ -38,7 +38,7 @@ android {
         versionName = flutter.versionName
     }
 
-    // محرّك التسميع القرآني: whisper.cpp مع واجهة صغيرة تستدعيها dart:ffi.
+    // محرّك سماع التلاوة: ONNX Runtime مع واجهة صغيرة تستدعيها dart:ffi.
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")

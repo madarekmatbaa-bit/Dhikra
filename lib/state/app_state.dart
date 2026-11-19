@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../db/adhkar_data.dart';
@@ -13,6 +14,7 @@ import '../services/notifications.dart';
 import '../services/prayer.dart';
 import '../services/updates.dart';
 import '../util/arabic.dart';
+import '../util/phoneme_tracker.dart';
 import '../util/quran_locator.dart';
 import 'library.dart';
 import 'quran_review.dart';
@@ -35,6 +37,14 @@ class AppState extends ChangeNotifier {
   /// فهرس كلمات المصحف كله لمعرفة موضع القارئ، يُبنى عند أول حاجة إليه.
   Future<QuranLocator>? _locator;
   Future<QuranLocator> quranLocator() => _locator ??= quranDb.allPlain().then(QuranLocator.new);
+
+  /// المصحف كله أصواتاً، لمعرفة موضع القارئ بنموذج التلاوة.
+  Future<PhonemeLocator>? _phonLocator;
+  Future<PhonemeLocator> phonemeLocator() => _phonLocator ??= quranDb.allPhon().then(PhonemeLocator.new);
+
+  Future<PhonemeTokens>? _phonTokens;
+  Future<PhonemeTokens> phonemeTokens() =>
+      _phonTokens ??= rootBundle.loadString('assets/data/phoneme_tokens.txt').then(PhonemeTokens.parse);
 
   late final quran = QuranReview(
     db: quranDb,

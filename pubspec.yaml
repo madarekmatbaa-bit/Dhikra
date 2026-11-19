@@ -47,6 +47,7 @@ flutter:
     - assets/data/hadith.db
     - assets/data/adhkar.json
     - assets/data/quran.db
+    - assets/data/phoneme_tokens.txt
     - assets/sounds/mistake.wav
   fonts:
     - family: Readex

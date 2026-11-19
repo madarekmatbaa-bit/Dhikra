@@ -22,15 +22,7 @@ class _DownloadSheetState extends State<_DownloadSheet> {
   double? progress;
   String? error;
   bool cancelled = false;
-  int total = QuranAsrModel.files.fold(0, (a, f) => a + f.size);
-
-  @override
-  void initState() {
-    super.initState();
-    QuranAsrModel.missingBytes().then((n) {
-      if (mounted && n > 0) setState(() => total = n);
-    });
-  }
+  final int total = QuranAsrModel.sizeBytes;
 
   Future<void> _start() async {
     setState(() {
@@ -67,9 +59,10 @@ class _DownloadSheetState extends State<_DownloadSheet> {
               style: TextStyle(fontFamily: readingFont, fontSize: 21, fontWeight: FontWeight.w700, height: 1.4)),
           const SizedBox(height: 6),
           Text(
-            'نموذج تعرّف على الكلام مدرَّب على تلاوة القرآن، يعمل على هاتفك بلا إنترنت. '
-            'أدق بكثير من خدمة Google في سماع التلاوة والحكم على الخطأ، ولا يخرج صوتك من الهاتف.\n'
-            'يُنزَّل مرة واحدة، نحو ${(total / 1048576).round()} ميغابايت، ويُفضَّل على شبكة Wi-Fi.',
+            'نموذج يسمع التلاوة حرفاً حرفاً، مدرَّب على قراءة الناس بهواتفهم لا على قرّاء الاستوديو وحدهم. '
+            'يعمل على هاتفك بلا إنترنت، ويتبعك أثناء القراءة، ولا يخرج صوتك من الهاتف.\n'
+            'يُنزَّل مرة واحدة، نحو ${(total / 1048576).round()} ميغابايت، ويُفضَّل على شبكة Wi-Fi.\n'
+            'تنبيهه آلي قد يخطئ، ولا يغني عن القراءة على شيخ.',
             style: TextStyle(color: pal.muted, fontSize: 14.5, height: 1.6),
           ),
           const SizedBox(height: 16),

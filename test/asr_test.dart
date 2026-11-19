@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:dhikra/services/quran_asr.dart';
 import 'package:dhikra/util/quran_locator.dart';
 import 'package:dhikra/util/recitation.dart';
 import 'package:dhikra/util/speech_segmenter.dart';
@@ -124,19 +123,6 @@ void main() {
       t.beginPhrase();
       t.replayFinal([w('الصراط المستقيم')]);
       expect(t.mistakeWords.map((m) => m.$2), ['اهدنا']);
-    });
-  });
-
-  group('محرّك Whisper', () {
-    test('نافذة الترميز بقدر العبارة', () {
-      expect(WhisperEngine.audioCtxFor(16000 * 4), 384);
-      expect(WhisperEngine.audioCtxFor(16000 * 13), 832);
-      expect(WhisperEngine.audioCtxFor(16000 * 29), 0);
-    });
-
-    test('قطع الدوران في التكرار', () {
-      expect(WhisperEngine.cutLoop('ذلك الكتاب لا ريب فيه هدى'), 'ذلك الكتاب لا ريب فيه هدى');
-      expect(WhisperEngine.cutLoop('هدى للمتقي هدى للمتقي هدى للمتقي هدى للمتقي'), 'هدى للمتقي هدى للمتقي');
     });
   });
 }

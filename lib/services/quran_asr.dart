@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -11,60 +12,42 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
-import '../util/recitation.dart';
 import '../util/speech_segmenter.dart';
 import 'recitation_listener.dart';
 
-/// نموذج التعرّف على التلاوة: Whisper معدّل على تلاوة القرآن (Tarteel)، بصيغة whisper.cpp.
-/// يُنزَّل مرة واحدة من إصدارات المستودع، ثم يعمل على الهاتف بلا إنترنت.
+/// نموذج سماع التلاوة: Zipformer متدفق (Quran-Lab، رخصة NPL-1.2) يُخرج أصوات القراءة
+/// حرفاً حرفاً مع حركاتها، لا كلمات. درّبه أصحابه على تسجيلات قرّاء عاديين بهواتفهم،
+/// فيسمع القارئ العادي كما يسمع المجوّد. يُنزَّل مرة واحدة ثم يعمل على الهاتف بلا إنترنت.
 class QuranAsrModel {
-  static const _base = 'https://github.com/madarekmatbaa-bit/Dhikra/releases/download/asr-2/';
+  static const file = 'quran-zipformer-a.int8.onnx';
+  static const url = 'https://github.com/madarekmatbaa-bit/Dhikra/releases/download/asr-3/$file';
+  static const sizeBytes = 72705392;
+  static const sha256Hex = '6a5ddafa9c5e5c01260d30264031b341785bdc152e9ef1d569b41c8c278508eb';
+  static const approxMb = 69;
 
-  /// النموذج الأكبر يحكم على كل عبارة بعد الوقفة، والأصغر يتبع القارئ أثناء قراءته.
-  static const files = [
-    (name: 'quran-base-q5_1.bin', size: 59707625, sha: 'acc1f03c8b1468b674b4fab50e0b2312cff982ba0001cd16fe36ca23862b6536'),
-    (name: 'quran-tiny-q5_1.bin', size: 32152673, sha: 'af8dfdd73c60b32e4e6d72e98e095e33fbeb04b9d39508580d051aa28202c646'),
-  ];
-  static const file = 'quran-base-q5_1.bin';
-  static const url = '$_base$file';
-  static const sha256Hex = 'acc1f03c8b1468b674b4fab50e0b2312cff982ba0001cd16fe36ca23862b6536';
-  static const approxMb = 88;
+  /// ملفات النموذج السابق (Whisper): تُحذف من الهاتف، فلم تعد تُستعمل.
+  static const _old = ['quran-base-q5_1.bin', 'quran-tiny-q5_1.bin'];
 
   static Future<String> path([String name = file]) async {
     final dir = await getApplicationSupportDirectory();
     return p.join(dir.path, 'asr', name);
   }
 
-  static Future<String> tinyPath() => path(files[1].name);
-
-  static Future<bool> installed() async => await missingBytes() == 0;
-
-  /// ما بقي تنزيله من النموذجين.
-  static Future<int> missingBytes() async {
-    var n = 0;
-    for (final f in files) {
-      if (!File(await path(f.name)).existsSync()) n += f.size;
+  static Future<bool> installed() async {
+    for (final o in _old) {
+      for (final f in [File(await path(o)), File('${await path(o)}.part')]) {
+        if (f.existsSync()) {
+          try {
+            await f.delete();
+          } catch (_) {}
+        }
+      }
     }
-    return n;
+    return File(await path()).existsSync();
   }
 
-  /// ينزّل ما ينقص من النموذجين بتقدّم واحد من 0 إلى 1. يعيد رسالة خطأ أو null.
-  static Future<String?> downloadAll(void Function(double progress) onProgress, {bool Function()? cancelled}) async {
-    final total = await missingBytes();
-    var done = 0;
-    for (final f in files) {
-      final dest = await path(f.name);
-      if (File(dest).existsSync()) continue;
-      final err = await download((x) => onProgress(total == 0 ? 1 : (done + x * f.size) / total),
-          cancelled: cancelled, from: '$_base${f.name}', to: dest, expectedSize: f.size, expectedSha: f.sha);
-      if (err != null) return err;
-      done += f.size;
-    }
-    onProgress(1);
-    return null;
-  }
-
-  static const sizeBytes = 59707625;
+  static Future<String?> downloadAll(void Function(double progress) onProgress, {bool Function()? cancelled}) =>
+      download(onProgress, cancelled: cancelled);
 
   /// ينزّل النموذج مع تقدّم من 0 إلى 1. يعيد رسالة خطأ أو null.
   ///
@@ -165,158 +148,226 @@ class QuranAsrModel {
   }
 
   static Future<void> remove() async {
-    for (final m in files) {
-      final f = File(await path(m.name));
+    for (final f in [File(await path()), File('${await path()}.part')]) {
       if (f.existsSync()) await f.delete();
     }
   }
 }
 
-// ---------- الربط مع whisper.cpp ----------
+// ---------- الربط مع المكتبة الأصلية (dhikra_stream.cpp) ----------
 
-typedef _InitC = Pointer<Void> Function(Pointer<Utf8>);
+typedef _InitC = Pointer<Void> Function(Pointer<Utf8>, Int32);
+typedef _InitD = Pointer<Void> Function(Pointer<Utf8>, int);
+typedef _ErrC = Pointer<Utf8> Function();
 typedef _FreeC = Void Function(Pointer<Void>);
-typedef _FreeStrC = Void Function(Pointer<Utf8>);
-typedef _TranscribeC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Float>, Int32, Pointer<Utf8>, Int32, Int32);
-typedef _TranscribeD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Float>, int, Pointer<Utf8>, int, int);
+typedef _FreeD = void Function(Pointer<Void>);
+typedef _ResetC = Int32 Function(Pointer<Void>);
+typedef _ResetD = int Function(Pointer<Void>);
+typedef _AcceptC = Int32 Function(Pointer<Void>, Pointer<Float>, Int32, Pointer<Float>, Int32);
+typedef _AcceptD = int Function(Pointer<Void>, Pointer<Float>, int, Pointer<Float>, int);
 
-DynamicLibrary _lib() => DynamicLibrary.open(Platform.isAndroid ? 'libdhikra_asr.so' : _hostLib);
-String _hostLib = 'libdhikra_asr.so';
+String _hostLib = '';
 
 /// للاختبار على الحاسوب: مسار المكتبة المبنية محلياً.
 void setAsrLibraryPath(String path) => _hostLib = path;
 
-int _initIn(String model, String libPath) {
-  _hostLib = libPath;
-  final f = _lib().lookupFunction<_InitC, Pointer<Void> Function(Pointer<Utf8>)>('dq_init');
+/// عدد رموز النموذج (آخرها الفراغ).
+const _vocab = 251;
+
+/// الخيط الذي يشغّل النموذج: يستقبل الصوت قطعاً، ويرسل لكل إطار (40 جزءاً من ألف من الثانية)
+/// أرجح ثلاثة رموز واحتمالاتها. يبقى حياً ما بقي النموذج محمّلاً.
+void _worker((SendPort, String, String, int) args) {
+  final (out, model, libPath, threads) = args;
+  final DynamicLibrary lib;
+  try {
+    lib = DynamicLibrary.open(libPath.isEmpty ? 'libdhikra_asr.so' : libPath);
+  } catch (e) {
+    out.send('تعذّر فتح مكتبة النموذج');
+    return;
+  }
+  final init = lib.lookupFunction<_InitC, _InitD>('zq_init');
+  final err = lib.lookupFunction<_ErrC, _ErrC>('zq_error');
+  final free = lib.lookupFunction<_FreeC, _FreeD>('zq_free');
+  final reset = lib.lookupFunction<_ResetC, _ResetD>('zq_reset');
+  final accept = lib.lookupFunction<_AcceptC, _AcceptD>('zq_accept');
+
   final m = model.toNativeUtf8();
-  try {
-    return f(m).address;
-  } finally {
-    malloc.free(m);
+  final ctx = init(m, threads);
+  malloc.free(m);
+  if (ctx == nullptr) {
+    final e = err();
+    out.send(e == nullptr ? 'تعذّر تحميل النموذج' : e.toDartString());
+    return;
   }
+  const cap = 96;
+  var inCap = 16000;
+  var inBuf = malloc<Float>(inCap);
+  final outBuf = malloc<Float>(cap * _vocab);
+  final lp = outBuf.asTypedList(cap * _vocab);
+  final inbox = ReceivePort();
+
+  void emit(int frames) {
+    final ids = Uint8List(frames * 3);
+    final probs = Float32List(frames * 3);
+    for (var f = 0; f < frames; f++) {
+      final o = f * _vocab;
+      var b0 = 0, b1 = 0, b2 = 0;
+      var p0 = -1e30, p1 = -1e30, p2 = -1e30;
+      for (var i = 0; i < _vocab; i++) {
+        final x = lp[o + i];
+        if (x > p0) {
+          p2 = p1;
+          b2 = b1;
+          p1 = p0;
+          b1 = b0;
+          p0 = x;
+          b0 = i;
+        } else if (x > p1) {
+          p2 = p1;
+          b2 = b1;
+          p1 = x;
+          b1 = i;
+        } else if (x > p2) {
+          p2 = x;
+          b2 = i;
+        }
+      }
+      ids[f * 3] = b0;
+      ids[f * 3 + 1] = b1;
+      ids[f * 3 + 2] = b2;
+      probs[f * 3] = math.exp(p0);
+      probs[f * 3 + 1] = math.exp(p1);
+      probs[f * 3 + 2] = math.exp(p2);
+    }
+    out.send((ids, probs, frames));
+  }
+
+  inbox.listen((msg) {
+    if (msg is Float32List) {
+      if (msg.length > inCap) {
+        malloc.free(inBuf);
+        inCap = msg.length;
+        inBuf = malloc<Float>(inCap);
+      }
+      inBuf.asTypedList(msg.length).setAll(0, msg);
+      var n = msg.length;
+      while (true) {
+        final frames = accept(ctx, inBuf, n, outBuf, cap);
+        if (frames < 0) {
+          final e = err();
+          out.send(e == nullptr ? 'توقّف النموذج' : e.toDartString());
+          return;
+        }
+        if (frames > 0) emit(frames);
+        // امتلأ المخرج وبقي صوت لم يُعالج: نكمل دون صوت جديد.
+        if (frames + 16 <= cap) break;
+        n = 0;
+      }
+    } else if (msg is int) {
+      if (msg < 0) reset(ctx);
+      out.send(msg); // علامة: كل ما سبقها عولج
+    } else {
+      free(ctx);
+      malloc.free(inBuf);
+      malloc.free(outBuf);
+      inbox.close();
+    }
+  });
+  out.send(inbox.sendPort);
 }
 
-String? _transcribeIn(int ctx, Float32List pcm, String prompt, int audioCtx, int threads, String libPath) {
-  _hostLib = libPath;
-  final lib = _lib();
-  final f = lib.lookupFunction<_TranscribeC, _TranscribeD>('dq_transcribe');
-  final freeStr = lib.lookupFunction<_FreeStrC, void Function(Pointer<Utf8>)>('dq_free_str');
-  final buf = malloc<Float>(pcm.length);
-  buf.asTypedList(pcm.length).setAll(0, pcm);
-  final pr = prompt.toNativeUtf8();
-  try {
-    final r = f(Pointer.fromAddress(ctx), buf, pcm.length, pr, audioCtx, threads);
-    if (r.address == 0) return null;
-    final s = r.toDartString();
-    freeStr(r);
-    return s;
-  } finally {
-    malloc.free(buf);
-    malloc.free(pr);
-  }
-}
+/// محرّك السماع: يحمّل النموذج مرة في خيط خاص ويبقيه بين فتحات المصحف.
+class StreamEngine {
+  Isolate? _iso;
+  SendPort? _to;
+  ReceivePort? _from;
+  String? error;
+  int _mark = 0;
+  final _marks = <int, Completer<void>>{};
 
-typedef _ScoreC = Float Function(Pointer<Void>, Pointer<Utf8>, Int32, Pointer<Int32>);
-typedef _ScoreD = double Function(Pointer<Void>, Pointer<Utf8>, int, Pointer<Int32>);
+  /// إطارات جاهزة: أرجح ثلاثة رموز لكل إطار واحتمالاتها.
+  void Function(Uint8List ids, Float32List probs, int n)? onFrames;
+  void Function(String message)? onError;
 
-double _scoreIn(int ctx, String text, int threads, String libPath) {
-  _hostLib = libPath;
-  final f = _lib().lookupFunction<_ScoreC, _ScoreD>('dq_score');
-  final t = ' ${text.trim()}'.toNativeUtf8();
-  final n = malloc<Int32>();
-  try {
-    return f(Pointer.fromAddress(ctx), t, threads, n);
-  } finally {
-    malloc.free(t);
-    malloc.free(n);
-  }
-}
+  bool get ready => _to != null;
 
-/// محرّك Whisper: يحمّل النموذج مرة، وينسخ كل عبارة في خيط منفصل حتى لا تتجمد الواجهة.
-class WhisperEngine {
-  int _ctx = 0;
-  bool get ready => _ctx != 0;
-
-  static int get threads => (Platform.numberOfProcessors >= 8 ? 4 : Platform.numberOfProcessors.clamp(2, 4));
+  static int get threads => Platform.numberOfProcessors >= 8 ? 4 : Platform.numberOfProcessors.clamp(1, 2);
 
   Future<bool> load(String modelPath) async {
-    if (_ctx != 0) return true;
-    final lib = _hostLib;
-    _ctx = await Isolate.run(() => _initIn(modelPath, lib));
-    return _ctx != 0;
-  }
-
-  /// نافذة الترميز بقدر طول المقطع (50 إطاراً في الثانية) مع هامش، وهي أسرع بكثير
-  /// من نافذة الثلاثين ثانية الكاملة لعبارة من بضع ثوانٍ.
-  static int audioCtxFor(int samples) {
-    final secs = samples / SpeechSegmenter.rate;
-    final frames = ((secs + 2.5) * 50).ceil();
-    final rounded = ((frames + 63) ~/ 64) * 64;
-    return rounded >= 1500 ? 0 : rounded.clamp(384, 1500);
-  }
-
-  Future<String?> transcribe(Float32List pcm, {String prompt = '', bool fullWindow = false}) async {
-    if (_ctx == 0) return null;
-    // هامش صامت قبل العبارة وبعدها: بدونه يُسقط النموذج أحياناً آخر كلمة.
-    const lead = 3200, tail = 9600;
-    final padded = Float32List(pcm.length + lead + tail)..setAll(lead, pcm);
-    final ctx = _ctx, lib = _hostLib, th = threads;
-    final ac = fullWindow ? 0 : audioCtxFor(padded.length);
-    final text = await Isolate.run(() => _transcribeIn(ctx, padded, prompt, ac, th, lib));
-    if (text == null || fullWindow) return text;
-    // دوران في التكرار (كلمات أكثر مما يتسع له الصوت): نعيد بالنافذة الكاملة.
-    final words = text.trim().split(RegExp(r'\s+')).length;
-    final secs = pcm.length / SpeechSegmenter.rate;
-    if (words > secs * 3.2 + 3 || hasLoop(text)) {
-      final again = await Isolate.run(() => _transcribeIn(ctx, padded, prompt, 0, th, lib));
-      if (again != null) return hasLoop(again) ? cutLoop(again) : again;
-    }
-    return text;
-  }
-
-  /// احتمال النص (لوغاريتم) لآخر عبارة نُسخت. يجب أن يُستدعى بعد transcribe مباشرة.
-  Future<double> score(String text) async {
-    if (_ctx == 0) return 1;
-    final ctx = _ctx, lib = _hostLib, th = threads;
-    return Isolate.run(() => _scoreIn(ctx, text, th, lib));
-  }
-
-  /// عبارة من أربع كلمات فأكثر تتكرر ثلاث مرات متتالية: النموذج يدور.
-  static bool hasLoop(String text) => cutLoop(text) != text;
-
-  /// يقطع النص عند بدء التكرار الثالث لعبارة متكررة.
-  static String cutLoop(String text) {
-    final w = text.trim().split(RegExp(r'\s+'));
-    for (var n = 2; n <= 10; n++) {
-      for (var i = 0; i + 3 * n <= w.length; i++) {
-        var rep = true;
-        for (var k = 0; k < n && rep; k++) {
-          if (w[i + k] != w[i + n + k] || w[i + k] != w[i + 2 * n + k]) rep = false;
-        }
-        if (rep && n * 3 >= 6) return w.sublist(0, i + 2 * n).join(' ');
+    if (_to != null) return true;
+    final from = ReceivePort();
+    final first = Completer<Object?>();
+    from.listen((msg) {
+      if (!first.isCompleted) {
+        first.complete(msg);
+      } else if (msg is (Uint8List, Float32List, int)) {
+        onFrames?.call(msg.$1, msg.$2, msg.$3);
+      } else if (msg is int) {
+        _marks.remove(msg)?.complete();
+      } else if (msg is String) {
+        onError?.call(msg);
       }
+    });
+    try {
+      _iso = await Isolate.spawn(_worker, (from.sendPort, modelPath, _hostLib, threads));
+    } catch (e) {
+      from.close();
+      error = '$e';
+      return false;
     }
-    return text;
+    final r = await first.future;
+    if (r is SendPort) {
+      _to = r;
+      _from = from;
+      return true;
+    }
+    error = '$r';
+    from.close();
+    _iso?.kill();
+    _iso = null;
+    return false;
+  }
+
+  void feed(Float32List pcm) => _to?.send(pcm);
+
+  /// ينتظر حتى يُعالج كل ما أُرسل. [reset]: يبدأ النموذج بعدها من جديد (قراءة جديدة).
+  Future<void> drain({bool reset = false}) {
+    final to = _to;
+    if (to == null) return Future.value();
+    final id = reset ? -(++_mark) : ++_mark;
+    final c = Completer<void>();
+    _marks[id] = c;
+    to.send(id);
+    return c.future.timeout(const Duration(seconds: 8), onTimeout: () {
+      _marks.remove(id);
+    });
   }
 
   void dispose() {
-    if (_ctx == 0) return;
-    final f = _lib().lookupFunction<_FreeC, void Function(Pointer<Void>)>('dq_free');
-    f(Pointer.fromAddress(_ctx));
-    _ctx = 0;
+    _to?.send('close');
+    _to = null;
+    _from?.close();
+    _from = null;
+    _iso = null;
+    for (final c in _marks.values) {
+      c.complete();
+    }
+    _marks.clear();
   }
 }
 
-/// يستمع بالميكروفون مباشرة ويحوّل كل عبارة بنموذج التلاوة على الهاتف.
-/// يرسل نتائج جزئية أثناء العبارة ليتبع القارئ، ونهائية بعد كل وقفة ليحكم على الأخطاء.
-class QuranAsrListener implements ReciteListener {
+/// يستمع بالميكروفون ويمرّر الصوت إلى النموذج قطعة قطعة، فيخرج أصوات القراءة أثناءها
+/// (لا بعد الوقفة)، ويتابعها [PhonemeTracker] في شاشة المصحف.
+class QuranStreamListener implements ReciteListener {
   final _rec = AudioRecorder();
-  // يبقى النموذج محمّلاً بين فتحات المصحف، فتحميله يأخذ ثانية أو اثنتين.
-  static final _engine = WhisperEngine();
-  static final _fast = WhisperEngine();
+  static final _engine = StreamEngine();
   StreamSubscription<Uint8List>? _sub;
-  late final SpeechSegmenter _seg = SpeechSegmenter(onPhrase: _onPhrase, onLevel: (l) => onLevel?.call(l * 10));
+  // يُستعمل لقياس مستوى الصوت ومعرفة السكوت فقط، لا لتقطيع العبارات.
+  late final SpeechSegmenter _seg = SpeechSegmenter(
+    onPhrase: (_, _) {},
+    onLevel: (l) => onLevel?.call(l * 10),
+    interimEvery: const Duration(days: 1),
+  );
 
   @override
   bool active = false;
@@ -327,19 +378,17 @@ class QuranAsrListener implements ReciteListener {
   @override
   void Function(double level)? onLevel;
 
-  /// العبارة النهائية مع ما يلزم للتحقق من أخطائها قبل عرضها. إن عُيّن استُعمل بدل onWords
-  /// للنتائج النهائية، وينتظر المستمع انتهاءه قبل أي نسخ آخر بالنموذج الكبير.
-  Future<void> Function(List<String> words, PhraseJudge judge, bool newPhrase)? onJudged;
+  /// إطارات النموذج، وهل في الصوت قراءة الآن.
+  void Function(Uint8List ids, Float32List probs, int n, bool speech)? onFrames;
 
-  /// نص المصحف الذي قرأه القارئ قبل العبارة، يُعطى للنموذج ليتّبع إملاءه.
-  String Function()? context;
+  /// الهاتف يعالج الصوت أبطأ مما يُقرأ (مرة واحدة في الجلسة).
+  void Function()? onSlow;
 
-  /// هل القارئ يتكلم الآن، أو ما زالت عبارة تُنسخ؟ (لا يُثبَّت خطأ معلّق قبل أن يسكت.)
-  bool get speaking => _seg.inSpeech || _busy || _finals.isNotEmpty;
+  int _sent = 0, _got = 0;
+  bool _toldSlow = false;
 
-  bool _busy = false;
-  bool _phraseOpen = false;
-  final _finals = <Float32List>[];
+  /// ثوانٍ من الصوت لم تُعالج بعد.
+  double get lag => (_sent / SpeechSegmenter.rate - _got * 0.04).clamp(0, 1e9);
 
   @override
   Future<String?> start() async {
@@ -348,22 +397,27 @@ class QuranAsrListener implements ReciteListener {
       final ok = await _engine.load(await QuranAsrModel.path());
       if (!ok) return 'تعذّر تحميل نموذج التلاوة. احذفه من الإعدادات ونزّله من جديد.';
     }
-    if (!_fast.ready) {
-      final tiny = await QuranAsrModel.tinyPath();
-      if (File(tiny).existsSync()) await _fast.load(tiny);
-    }
+    await _engine.drain(reset: true);
+    _engine
+      ..onFrames = _frames
+      ..onError = (m) {
+        if (!active) return;
+        stop();
+        onFatal?.call('توقّف نموذج التلاوة. أعد تشغيل المتابعة.');
+      };
+    _sent = 0;
+    _got = 0;
+    _toldSlow = false;
     try {
       final stream = await _rec.startStream(const RecordConfig(
         encoder: AudioEncoder.pcm16bits,
         sampleRate: SpeechSegmenter.rate,
         numChannels: 1,
         autoGain: true,
-        noiseSuppress: true,
         androidConfig: AndroidRecordConfig(audioSource: AndroidAudioSource.voiceRecognition),
       ));
       active = true;
-      _phraseOpen = false;
-      _sub = stream.listen(_seg.addPcm16, onError: (_) {});
+      _sub = stream.listen(_pcm, onError: (_) {});
     } catch (_) {
       return 'تعذّر فتح الميكروفون. أغلق أي تطبيق آخر يستعمله وحاول مجدداً.';
     }
@@ -371,82 +425,62 @@ class QuranAsrListener implements ReciteListener {
     return null;
   }
 
+  Uint8List? _odd;
+
+  void _pcm(Uint8List bytes) {
+    // قد تصل القطعة بعدد فردي من البايتات: نضمّ الباقي إلى التالية.
+    var b = bytes;
+    final odd = _odd;
+    if (odd != null) {
+      b = Uint8List(odd.length + bytes.length)
+        ..setAll(0, odd)
+        ..setAll(odd.length, bytes);
+      _odd = null;
+    }
+    if (b.length.isOdd) {
+      _odd = Uint8List.fromList([b.last]);
+      b = Uint8List.sublistView(b, 0, b.length - 1);
+    }
+    final n = b.length ~/ 2;
+    if (n == 0) return;
+    final data = ByteData.sublistView(b);
+    final f = Float32List(n);
+    for (var i = 0; i < n; i++) {
+      f[i] = data.getInt16(i * 2, Endian.little) / 32768.0;
+    }
+    _seg.addSamples(f);
+    _sent += n;
+    _engine.feed(f);
+  }
+
+  void _frames(Uint8List ids, Float32List probs, int n) {
+    _got += n;
+    if (!active && !_stopping) return;
+    onFrames?.call(ids, probs, n, _seg.inSpeech);
+    if (!_toldSlow && lag > 4) {
+      _toldSlow = true;
+      onSlow?.call();
+    }
+  }
+
+  bool _stopping = false;
+
   @override
   Future<void> stop() async {
     if (!active) return;
     active = false;
+    _stopping = true;
     await _sub?.cancel();
     _sub = null;
     try {
       await _rec.stop();
     } catch (_) {}
     _seg.flush();
+    // صمت قصير يُخرج آخر ما بقي في النموذج من القراءة، ثم ننتظر معالجته.
+    _engine.feed(Float32List(SpeechSegmenter.rate));
+    await _engine.drain();
+    _stopping = false;
     await WakelockPlus.disable();
-    // ننتظر نسخ العبارة الأخيرة لتُحسب أخطاؤها في الملخص.
-    for (var i = 0; i < 80 && (_busy || _finals.isNotEmpty); i++) {
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
-  }
-
-  bool _fastBusy = false;
-
-  void _onPhrase(Float32List pcm, bool isFinal) {
-    if (isFinal) {
-      _finals.add(pcm);
-      _pump();
-    } else if (_fast.ready) {
-      // النموذج الصغير يتبع القارئ أثناء العبارة دون أن ينتظر الكبير.
-      if (!_fastBusy) _interim(pcm);
-    } else if (!_busy && _finals.isEmpty) {
-      _run(pcm, false);
-    }
-  }
-
-  Future<void> _interim(Float32List pcm) async {
-    _fastBusy = true;
-    try {
-      final text = await _fast.transcribe(pcm);
-      final words = text == null ? const <String>[] : recitationWords(text);
-      // نتيجة جزئية بعد أن أُغلقت العبارة بنتيجتها النهائية لا معنى لها.
-      if (words.isNotEmpty && active && (_phraseOpen || !_busy)) {
-        final newPhrase = !_phraseOpen;
-        _phraseOpen = true;
-        onWords?.call([words], newPhrase, false);
-      }
-    } catch (_) {
-    } finally {
-      _fastBusy = false;
-    }
-  }
-
-  void _pump() {
-    if (_busy || _finals.isEmpty) return;
-    _run(_finals.removeAt(0), true);
-  }
-
-  Future<void> _run(Float32List pcm, bool isFinal) async {
-    _busy = true;
-    try {
-      final text = await _engine.transcribe(pcm, prompt: context?.call() ?? '');
-      final words = text == null ? const <String>[] : recitationWords(text);
-      if (words.isNotEmpty) {
-        final newPhrase = !_phraseOpen;
-        _phraseOpen = !isFinal;
-        final judged = onJudged;
-        if (isFinal && judged != null) {
-          await judged(words, PhraseJudge(text!, _engine.score), newPhrase);
-        } else {
-          onWords?.call([words], newPhrase, isFinal);
-        }
-      } else if (isFinal && _phraseOpen) {
-        // لم يُفهم شيء في آخر العبارة: نغلقها بما سُمع جزئياً.
-        _phraseOpen = false;
-      }
-    } catch (_) {
-    } finally {
-      _busy = false;
-      _pump();
-    }
   }
 
   void dispose() {
@@ -454,37 +488,7 @@ class QuranAsrListener implements ReciteListener {
   }
 
   /// يحرّر النموذج من الذاكرة (عند حذفه من الإعدادات).
-  static void unload() {
-    _engine.dispose();
-    _fast.dispose();
-  }
-}
-
-/// يحكم على أخطاء عبارة بالموازنة: احتمال ما سمعه النموذج، واحتمال النص لو كانت
-/// الكلمة صحيحة. لا يُعدّ خطأً إلا ما رجّح النموذج أنه قيل فعلاً بفارق واضح.
-class PhraseJudge {
-  final String text;
-  final Future<double> Function(String) _score;
-  PhraseJudge(this.text, this._score);
-
-  /// الكلمات كما خرجت من النموذج بحركاتها، مقابل الكلمات المطبّعة.
-  List<String> get raw => pairWords(text).$2;
-
-  double? _hyp;
-
-  /// الفرق (باللوغاريتم) الذي يلزم ليُعدّ الخطأ مؤكداً. اختير من تقييم 1260 آية لـ28 قارئاً
-  /// (asr-eval.yml): بهذه الحدود خطآن كاذبان لكل ألف كلمة، ويُلتقط 97% من الكلمات المبدلة
-  /// و99% من الساقطة و89% من الحرف المبدل.
-  static const wordMargin = 12.0, lettersMargin = 10.0, harakatMargin = 12.0;
-
-  /// هل النص المصحَّح [corrected] أبعد احتمالاً مما سُمع بفارق [margin]؟
-  Future<bool> confirms(String corrected, {double margin = wordMargin}) async {
-    final h = _hyp ??= await _score(text);
-    if (h > 0) return true; // تعذّر الحساب: نُبقي حكم المقارنة
-    final c = await _score(corrected);
-    if (c > 0) return true;
-    return h - c >= margin;
-  }
+  static void unload() => _engine.dispose();
 }
 
 enum _Fetch { done, progressed, online, offline, cancelled }

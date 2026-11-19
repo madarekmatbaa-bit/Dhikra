@@ -29,13 +29,17 @@ class Aya {
 
   /// النص الإملائي المشكول (Tanzil) بالكتابة التي يخرجها نموذج التسميع، لمتابعة التلاوة.
   final String voweled;
-  const Aya(this.id, this.sura, this.aya, this.page, this.juz, this.text, {this.plain = '', this.voweled = ''});
+
+  /// أصوات الآية كما تُتلى (وصلاً، وآخرها وقفاً): كلمة صوتية لكل كلمة معروضة، لمتابعة التلاوة.
+  final String phon;
+  const Aya(this.id, this.sura, this.aya, this.page, this.juz, this.text,
+      {this.plain = '', this.voweled = '', this.phon = ''});
 }
 
 /// نص المصحف من مجمع الملك فهد لطباعة المصحف الشريف (رواية حفص، الإصدار 18).
 /// يُنسخ من ملفات التطبيق عند أول تشغيل، وهو للقراءة فقط.
 class QuranDb {
-  static const _version = 2;
+  static const _version = 3;
   late final Database _db;
   late final List<Sura> suras;
   late final String source;
@@ -47,6 +51,7 @@ class QuranDb {
   late final String basmala;
   late final String basmalaPlain;
   late final String basmalaVoweled;
+  late final String basmalaPhon;
 
   final _pageCache = <int, List<Aya>>{};
 
@@ -77,6 +82,7 @@ class QuranDb {
     basmala = stripNumber(b.first['text'] as String);
     basmalaPlain = b.first['plain'] as String;
     basmalaVoweled = (await _db.query('voweled', where: 'id = 1')).first['text'] as String;
+    basmalaPhon = (await _db.query('phon', where: 'id = 1')).first['words'] as String;
   }
 
   static String stripNumber(String t) => t.replaceFirst(RegExp(r'[  ]*[٠-٩]+$'), '');
@@ -85,11 +91,13 @@ class QuranDb {
     final c = _pageCache[n];
     if (c != null) return c;
     final rows = await _db.rawQuery(
-        'SELECT a.*, v.text AS voweled FROM ayat a JOIN voweled v ON v.id = a.id WHERE a.page = ? ORDER BY a.id', [n]);
+        'SELECT a.*, v.text AS voweled, f.words AS phon FROM ayat a JOIN voweled v ON v.id = a.id '
+        'JOIN phon f ON f.id = a.id WHERE a.page = ? ORDER BY a.id',
+        [n]);
     final list = [
       for (final r in rows)
         Aya(r['id'] as int, r['sura'] as int, r['aya'] as int, r['page'] as int, r['juz'] as int, r['text'] as String,
-            plain: r['plain'] as String, voweled: r['voweled'] as String),
+            plain: r['plain'] as String, voweled: r['voweled'] as String, phon: r['phon'] as String),
     ];
     if (_pageCache.length > 40) _pageCache.clear();
     return _pageCache[n] = list;
@@ -139,6 +147,12 @@ class QuranDb {
   Future<List<(int, int, String)>> allPlain() async {
     final rows = await _db.rawQuery('SELECT a.id, a.page, v.text FROM ayat a JOIN voweled v ON v.id = a.id ORDER BY a.id');
     return [for (final r in rows) (r['id'] as int, r['page'] as int, r['text'] as String)];
+  }
+
+  /// أصوات كل الآيات بترتيب المصحف، لمعرفة موضع القارئ مما سُمع من قراءته.
+  Future<List<(int, String)>> allPhon() async {
+    final rows = await _db.rawQuery('SELECT id, words FROM phon ORDER BY id');
+    return [for (final r in rows) (r['id'] as int, r['words'] as String)];
   }
 
   /// بحث بسيط في النص المجرد من التشكيل.

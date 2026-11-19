@@ -1,33 +1,44 @@
-cmake_minimum_required(VERSION 3.10)
-project(dhikra_asr LANGUAGES C CXX)
+cmake_minimum_required(VERSION 3.18)
+project(dhikra_asr LANGUAGES CXX)
 
-set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# whisper.cpp 1.9.5 منسوخ هنا (رخصة MIT)، بالمعالج وحده دون مسرّعات.
-set(W ${CMAKE_CURRENT_SOURCE_DIR}/whisper.cpp)
-file(GLOB GGML_SRC
-    ${W}/ggml/src/*.c
-    ${W}/ggml/src/*.cpp
-    ${W}/ggml/src/ggml-cpu/*.c
-    ${W}/ggml/src/ggml-cpu/*.cpp
-    ${W}/ggml/src/ggml-cpu/arch/arm/*.c
-    ${W}/ggml/src/ggml-cpu/arch/arm/*.cpp
-    ${W}/ggml/src/ggml-cpu/arch/x86/*.c
-    ${W}/ggml/src/ggml-cpu/arch/x86/*.cpp
-    ${W}/ggml/src/ggml-cpu/amx/*.cpp
-    ${W}/ggml/src/ggml-cpu/tiled/*.cpp
-)
-add_library(whisper STATIC ${GGML_SRC} ${W}/src/whisper.cpp ${W}/src/aneforge/whisper-aneforge.cpp)
-target_include_directories(whisper PUBLIC ${W}/include ${W}/ggml/include ${W}/ggml/src ${W}/ggml/src/ggml-cpu ${W}/src)
-target_compile_definitions(whisper PUBLIC GGML_USE_CPU)
-target_compile_definitions(whisper PRIVATE _GNU_SOURCE WHISPER_VERSION="1.9.5")
-target_compile_options(whisper PRIVATE -O3 -ffunction-sections -fdata-sections)
+# ONNX Runtime (رخصة MIT) يشغّل نموذج التلاوة. تُنزَّل مكتبته الرسمية لأندرويد من Maven Central
+# مرة واحدة عند البناء، ويُتحقق من بصمتها. وللبناء على الحاسوب (الاختبارات) يُعطى مسارها:
+#   -DORT_INCLUDE=<مجلد الترويسات> -DORT_LIB=<libonnxruntime.so>
+set(ORT_VERSION 1.22.0)
+set(ORT_SHA256 04a4617a9c797cf49225595e45b5546081cb34c86ac817581141577d3b7dbfe2)
 
-find_package(Threads REQUIRED)
-add_library(dhikra_asr SHARED dhikra_asr.cpp)
+add_library(onnxruntime SHARED IMPORTED)
+if(ORT_INCLUDE AND ORT_LIB)
+  set_target_properties(onnxruntime PROPERTIES IMPORTED_LOCATION ${ORT_LIB})
+  target_include_directories(onnxruntime INTERFACE ${ORT_INCLUDE})
+else()
+  set(ORT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../build/onnxruntime-${ORT_VERSION})
+  set(ORT_AAR ${ORT_DIR}/onnxruntime-android.aar)
+  if(NOT EXISTS ${ORT_DIR}/headers/onnxruntime_c_api.h)
+    file(DOWNLOAD
+        https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/${ORT_VERSION}/onnxruntime-android-${ORT_VERSION}.aar
+        ${ORT_AAR}
+        EXPECTED_HASH SHA256=${ORT_SHA256}
+        TLS_VERIFY ON
+        STATUS ORT_STATUS)
+    list(GET ORT_STATUS 0 ORT_CODE)
+    if(NOT ORT_CODE EQUAL 0)
+      file(REMOVE ${ORT_AAR})
+      message(FATAL_ERROR "تعذّر تنزيل ONNX Runtime: ${ORT_STATUS}")
+    endif()
+    file(ARCHIVE_EXTRACT INPUT ${ORT_AAR} DESTINATION ${ORT_DIR} PATTERNS "headers/*" "jni/*")
+    file(REMOVE ${ORT_AAR})
+  endif()
+  set_target_properties(onnxruntime PROPERTIES
+      IMPORTED_LOCATION ${ORT_DIR}/jni/${ANDROID_ABI}/libonnxruntime.so)
+  target_include_directories(onnxruntime INTERFACE ${ORT_DIR}/headers)
+endif()
+
+add_library(dhikra_asr SHARED dhikra_stream.cpp)
 target_compile_options(dhikra_asr PRIVATE -O3 -ffunction-sections -fdata-sections)
 target_link_options(dhikra_asr PRIVATE -Wl,--gc-sections)
-target_link_libraries(dhikra_asr PRIVATE whisper Threads::Threads)
+target_link_libraries(dhikra_asr PRIVATE onnxruntime)

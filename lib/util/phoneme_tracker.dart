@@ -910,11 +910,25 @@ class PhonemeTracker {
     _state[w] = 1;
   }
 
-  /// يضع الموضع عند الكلمة [disp] من الآية [key] (بعد أن عُرف موضع القارئ، أو اختاره بيده).
+  /// يضع الموضع عند الكلمة [disp] من الآية [key] (اختارها القارئ بيده).
   void startAtWord(int key, int disp) {
     var w = words.indexWhere((x) => x.key == key && x.disp >= disp);
     if (w < 0) w = words.indexWhere((x) => x.key == key);
-    if (w < 0) return;
+    if (w >= 0) startAtIndex(w);
+  }
+
+  /// يضع الموضع بعد الكلمة [disp] من الآية [key] (آخر ما سُمع حين عُرف موضع القارئ).
+  /// يعيد false إن لم تكن الآية في النص المنتظر.
+  bool startAfter(int key, int disp) {
+    var w = words.lastIndexWhere((x) => x.key == key && x.disp <= disp);
+    if (w < 0) return false;
+    startAtIndex(math.min(w + 1, words.length - 1));
+    return true;
+  }
+
+  /// يبدأ السماع من جديد عند الكلمة [w]، وينسى ما سُمع قبلها.
+  void startAtIndex(int w) {
+    w = w.clamp(0, words.length - 1);
     _start = w;
     pos = w;
     _h.clear();
@@ -934,6 +948,36 @@ class PhonemeTracker {
 
   /// للاختبار: ما سُمع من أصوات لم يُحذف بعد.
   String get debugHeard => phonemesToText([for (final e in _h) e.sym]);
+}
+
+final _istiadha = normalizePhonemes('ءَعُۥۥذُبِللَااهِمِنَششَيطَاانِررَجِۦۦۦۦم');
+
+/// هل ما سُمع استعاذة («أعوذ بالله من الشيطان الرجيم»)؟ ليست من نص الصفحة، فلا يُبحث عنها.
+bool isIstiadha(List<int> heard) {
+  final p = _istiadha, n = p.length;
+  if (heard.length < n - 6) return false;
+  // أقل كلفة لمطابقة الاستعاذة كلها في أي موضع مما سُمع.
+  var prev = Int32List(n + 1), cur = Int32List(n + 1);
+  for (var i = 0; i <= n; i++) {
+    prev[i] = i * 10;
+  }
+  var best = 1 << 28;
+  for (final h in heard) {
+    cur[0] = 0;
+    for (var i = 1; i <= n; i++) {
+      var c = prev[i - 1] + PhonemeTracker._sub(h, p[i - 1]);
+      final d = prev[i] + PhonemeTracker._ins(h);
+      if (d < c) c = d;
+      final e = cur[i - 1] + (_isVowel(p[i - 1]) ? 5 : 10);
+      if (e < c) c = e;
+      cur[i] = c;
+    }
+    if (cur[n] < best) best = cur[n];
+    final t = prev;
+    prev = cur;
+    cur = t;
+  }
+  return best <= n * 1.6;
 }
 
 /// يجد موضع القارئ في المصحف كله من أصوات سمعها.
