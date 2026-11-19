@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -40,7 +41,10 @@ class AppState extends ChangeNotifier {
 
   /// المصحف كله أصواتاً، لمعرفة موضع القارئ بنموذج التلاوة.
   Future<PhonemeLocator>? _phonLocator;
-  Future<PhonemeLocator> phonemeLocator() => _phonLocator ??= quranDb.allPhon().then(PhonemeLocator.new);
+  Future<PhonemeLocator> phonemeLocator() =>
+      _phonLocator ??= quranDb.allPhon().then((rows) => compute(_buildPhonLocator, rows));
+  // بناء الفهرس يأخذ جزءاً من الثانية، فيُبنى في خيط آخر حتى لا تتوقف الواجهة.
+  static PhonemeLocator _buildPhonLocator(List<(int, String)> rows) => PhonemeLocator(rows);
 
   Future<PhonemeTokens>? _phonTokens;
   Future<PhonemeTokens> phonemeTokens() =>

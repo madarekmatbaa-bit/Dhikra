@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -306,6 +305,7 @@ class _QuranReaderState extends State<QuranReader> {
     }
     if (!await _pickEngine() || !mounted) return;
     _located = false;
+    _follow?.located = false;
     await _buildTracker(page);
     final err = await _listener.start();
     if (!mounted) return;
@@ -493,13 +493,11 @@ class _QuranReaderState extends State<QuranReader> {
     final had = _follow;
     if (had != null) return had;
     final app = context.read<AppState>();
+    unawaited(app.phonemeLocator()); // يُجهَّز فهرس المصحف من الآن
     final f = PhonemeFollower(
       tokens: await app.phonemeTokens(),
       pageWords: _phonWords,
-      locate: (tail) async {
-        final loc = await app.phonemeLocator();
-        return Isolate.run(() => loc.locate(tail));
-      },
+      locate: (tail) async => (await app.phonemeLocator()).locate(tail),
       pageOfAya: (id) async => (await app.quranDb.ayaById(id))?.page,
       lastPage: quranPages,
     );
