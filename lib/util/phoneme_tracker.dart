@@ -773,7 +773,6 @@ class PhonemeTracker {
   }
 
   List<_Visit> _visits = const [];
-  List<MistakeInfo?> _verdicts = const [];
 
   /// هل ثبتت قراءة قبل أول ما بقي مما سُمع؟ (فالقفزة بعدها إسقاط لا بدء من وسط الصفحة.)
   bool _anchored = false;
@@ -784,7 +783,6 @@ class PhonemeTracker {
     final visits = _trace();
     final verdicts = List<MistakeInfo?>.generate(visits.length, (q) => visits[q].complete ? _judge(visits[q]) : null);
     _visits = visits;
-    _verdicts = verdicts;
     final n = _h.length;
     final paused = _silent >= _pauseFrames;
     _pending = false;
@@ -867,7 +865,6 @@ class PhonemeTracker {
       _window();
       _computeRows();
       _visits = const [];
-      _verdicts = const [];
       return;
     }
     final v = _visits[q];
@@ -887,7 +884,6 @@ class PhonemeTracker {
     _window();
     _computeRows();
     _visits = _trace();
-    _verdicts = [for (final x in _visits) x.complete ? _judge(x) : null];
   }
 
   // ---------- للشاشة ----------
@@ -968,7 +964,6 @@ class PhonemeTracker {
     _window();
     _computeRows();
     _visits = const [];
-    _verdicts = const [];
   }
 
   /// للاختبار: ما سُمع من أصوات لم يُحذف بعد.
