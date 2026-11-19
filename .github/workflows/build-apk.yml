@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      test_only:
+        description: بناء للتجربة فقط دون نشر إصدار
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -51,12 +56,23 @@ jobs:
       - name: تسمية الملف
         run: cp build/app/outputs/flutter-apk/app-release.apk "dhikra-${{ github.run_number }}.apk"
 
+      # مكتبتا سماع التلاوة يجب أن تكونا في الملف لكل معمارية.
+      - name: التحقق من المكتبات الأصلية
+        run: |
+          unzip -l "dhikra-${{ github.run_number }}.apk" | grep -E '\.so$' | tee /tmp/so.txt
+          for abi in arm64-v8a armeabi-v7a; do
+            grep -q "lib/$abi/libonnxruntime.so" /tmp/so.txt
+            grep -q "lib/$abi/libdhikra_asr.so" /tmp/so.txt
+          done
+          ls -la "dhikra-${{ github.run_number }}.apk"
+
       - uses: actions/upload-artifact@v4
         with:
           name: dhikra-apk
           path: dhikra-${{ github.run_number }}.apk
 
       - name: نشر إصدار للتحميل
+        if: ${{ !inputs.test_only }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
