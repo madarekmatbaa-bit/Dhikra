@@ -2,6 +2,8 @@ name: بناء APK
 
 on:
   push:
+    # تعديل الموقع وحده لا يبني إصداراً جديداً من التطبيق.
+    paths-ignore: ['site/**', '.github/workflows/pages.yml']
     branches: [main]
   workflow_dispatch:
 
